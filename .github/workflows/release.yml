@@ -16,16 +16,9 @@ jobs:
     name: Create draft
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Create the draft and upload schema assets.
+      contents: write # Create the draft release.
     steps:
-      - name: Clone tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-          REPOSITORY: ${{ github.repository }}
-        run: gh repo clone "$REPOSITORY" . -- --branch "$RELEASE_TAG" --depth 1
-
-      - name: Create draft and upload schemas
+      - name: Create draft
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
@@ -38,13 +31,6 @@ jobs:
               --draft \
               --generate-notes
           fi
-
-          gh release upload "$RELEASE_TAG" \
-            dist/rojo.schema.json \
-            dist/manifest.json \
-            dist/coverage.json \
-            --repo "$REPOSITORY" \
-            --clobber
 
   build:
     name: Build ${{ matrix.target }}
