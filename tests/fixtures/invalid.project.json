@@ -1,0 +1,7 @@
+{
+  "name": "invalid fixture",
+  "tree": {
+    "$className": "Part",
+    "$path": 42
+  }
+}

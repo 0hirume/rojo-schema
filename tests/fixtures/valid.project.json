@@ -1,0 +1,46 @@
+{
+  "name": "fixture",
+  "tree": {
+    "$className": "DataModel",
+    "Lighting": {
+      "$path": "assets/lighting",
+      "$properties": {
+        "Ambient": [0, 0, 0],
+        "Brightness": 2
+      }
+    },
+    "ReplicatedStorage": {
+      "$path": {
+        "optional": "shared"
+      }
+    },
+    "Workspace": {
+      "$path": "assets/workspace",
+      "Part": {
+        "$className": "Part",
+        "$path": "assets/baseplate",
+        "$id": "focus",
+        "$properties": {
+          "Anchored": true,
+          "Position": [1, 2, 3]
+        },
+        "$attributes": {
+          "BuildTag": "schema-test"
+        }
+      },
+      "Terrain": {}
+    }
+  },
+  "servePort": 34872,
+  "syncRules": [
+    {
+      "pattern": "**/*.server.luau",
+      "use": "serverScript"
+    }
+  ],
+  "syncbackRules": {
+    "ignoreProperties": {
+      "Part": ["Anchored"]
+    }
+  }
+}
