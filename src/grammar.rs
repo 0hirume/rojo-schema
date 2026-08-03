@@ -9,9 +9,9 @@ use serde_json::{json, Map, Value};
 use syn::{
     meta::ParseNestedMeta,
     visit::{self, Visit},
-    AngleBracketedGenericArguments, Arm, Attribute, Expr, ExprCall, Fields, GenericArgument,
-    ImplItem, Item, ItemEnum, ItemImpl, ItemStruct, ItemType, Lit, Meta, Pat, PathArguments, Type,
-    TypePath,
+    AngleBracketedGenericArguments, Arm, Attribute, BinOp, Expr, ExprBinary, ExprCall, Fields,
+    GenericArgument, ImplItem, Item, ItemEnum, ItemFn, ItemImpl, ItemStruct, ItemType, Lit, Meta,
+    Pat, PathArguments, Stmt, Type, TypePath,
 };
 
 const PROJECT: &str = "Project";
@@ -22,8 +22,15 @@ pub struct Grammar {
     pub root: Value,
     pub definitions: Map<String, Value>,
     pub compact: BTreeMap<String, Value>,
+    pub inferred: BTreeMap<String, Inference>,
     pub tree: String,
     pub node: Node,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Inference {
+    pub names: BTreeSet<String>,
+    pub tags: BTreeSet<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +48,7 @@ struct Definitions {
     aliases: BTreeMap<String, ItemType>,
     strings: BTreeSet<String>,
     compact: BTreeMap<String, String>,
+    inferred: BTreeMap<String, Inference>,
 }
 
 pub fn load(root: &Path) -> Result<Grammar> {
@@ -52,6 +60,10 @@ pub fn load(root: &Path) -> Result<Grammar> {
             .with_context(|| format!("parsing Rojo source {}", path.display()))?;
         collect_items(&file.items, &mut definitions)?;
     }
+    ensure!(
+        !definitions.inferred.is_empty(),
+        "Rojo class inference rules were not found"
+    );
 
     let tree = project_tree(&definitions)?;
     let roles = node_roles(&definitions)?;
@@ -71,6 +83,7 @@ pub fn load(root: &Path) -> Result<Grammar> {
         root,
         definitions: builder.output,
         compact,
+        inferred: definitions.inferred,
         tree,
         node: Node {
             schema,
@@ -125,6 +138,7 @@ fn collect_items(items: &[Item], definitions: &mut Definitions) -> Result<()> {
                     .or_insert_with(|| item.clone());
             }
             Item::Impl(item) => collect_impl(item, definitions)?,
+            Item::Fn(item) => collect_inference(item, definitions)?,
             Item::Mod(item) => {
                 if let Some((_, items)) = &item.content {
                     collect_items(items, definitions)?;
@@ -134,6 +148,103 @@ fn collect_items(items: &[Item], definitions: &mut Definitions) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn collect_inference(item: &ItemFn, definitions: &mut Definitions) -> Result<()> {
+    if item.sig.ident != "infer_class_name" {
+        return Ok(());
+    }
+    let mut branch = item
+        .block
+        .stmts
+        .iter()
+        .find_map(|statement| match statement {
+            Stmt::Expr(Expr::If(branch), _)
+                if comparison(&branch.cond, "parent_class").is_some() =>
+            {
+                Some(branch)
+            }
+            _ => None,
+        });
+    while let Some(current) = branch {
+        let parent = comparison(&current.cond, "parent_class")
+            .context("Rojo class inference branch has no parent class")?;
+        let mut inference = InferenceVisitor::default();
+        inference.visit_block(&current.then_branch);
+        ensure!(
+            !inference.names.is_empty() || !inference.tags.is_empty(),
+            "Rojo class inference for {parent} has no names or tags"
+        );
+        let target = definitions.inferred.entry(parent).or_default();
+        target.names.extend(inference.names);
+        target.tags.extend(inference.tags);
+        branch =
+            current
+                .else_branch
+                .as_ref()
+                .and_then(|(_, expression)| match expression.as_ref() {
+                    Expr::If(branch) => Some(branch),
+                    _ => None,
+                });
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct InferenceVisitor {
+    names: BTreeSet<String>,
+    tags: BTreeSet<String>,
+}
+
+impl<'ast> Visit<'ast> for InferenceVisitor {
+    fn visit_expr_binary(&mut self, node: &'ast ExprBinary) {
+        if let Some(name) = binary_comparison(node, "name") {
+            self.names.insert(name);
+        }
+        visit::visit_expr_binary(self, node);
+    }
+
+    fn visit_expr_path(&mut self, node: &'ast syn::ExprPath) {
+        let mut segments = node.path.segments.iter().rev();
+        if let (Some(tag), Some(owner)) = (segments.next(), segments.next()) {
+            if owner.ident == "ClassTag" {
+                self.tags.insert(tag.ident.to_string());
+            }
+        }
+        visit::visit_expr_path(self, node);
+    }
+}
+
+fn comparison(expression: &Expr, name: &str) -> Option<String> {
+    let Expr::Binary(binary) = expression else {
+        return None;
+    };
+    binary_comparison(binary, name)
+}
+
+fn binary_comparison(expression: &ExprBinary, name: &str) -> Option<String> {
+    if !matches!(expression.op, BinOp::Eq(_)) {
+        return None;
+    }
+    identifier_string(&expression.left, &expression.right, name)
+        .or_else(|| identifier_string(&expression.right, &expression.left, name))
+}
+
+fn identifier_string(identifier: &Expr, value: &Expr, name: &str) -> Option<String> {
+    let Expr::Path(identifier) = identifier else {
+        return None;
+    };
+    let Expr::Lit(value) = value else {
+        return None;
+    };
+    let Lit::Str(value) = &value.lit else {
+        return None;
+    };
+    identifier
+        .path
+        .get_ident()
+        .is_some_and(|identifier| identifier == name)
+        .then(|| value.value())
 }
 
 fn collect_impl(item: &ItemImpl, definitions: &mut Definitions) -> Result<()> {
@@ -886,6 +997,11 @@ mod tests {
         assert_eq!(grammar.compact["Bool"], json!({ "type": "boolean" }));
         assert_eq!(grammar.compact["CFrame"]["type"], "array");
         assert!(!grammar.compact.contains_key("Ref"));
+        assert!(grammar.inferred["DataModel"].tags.contains("Service"));
+        assert!(grammar.inferred["StarterPlayer"]
+            .names
+            .contains("StarterPlayerScripts"));
+        assert!(grammar.inferred["Workspace"].names.contains("Terrain"));
         assert_eq!(grammar.tree, "tree");
     }
 }

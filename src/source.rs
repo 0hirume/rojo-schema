@@ -49,7 +49,12 @@ pub fn load_rojo(path: &Path) -> Result<Rojo> {
 
     Ok(Rojo {
         source: SourceInfo {
-            path: slash(path),
+            repository: repository(
+                package
+                    .repository
+                    .as_deref()
+                    .context("Rojo package has no repository")?,
+            ),
             version: package.version.to_string(),
             sha256: hash_paths(path, files)?,
             revision: git_revision(path),
@@ -61,8 +66,12 @@ pub fn load_rojo(path: &Path) -> Result<Rojo> {
 pub fn docs_source(path: &Path, studio_version: &str) -> Result<SourceInfo> {
     let root = docs::engine_root(path)?;
     let files = collect_files(&root)?;
+    let package = fs::read_to_string(path.join("package.json"))
+        .with_context(|| format!("reading {}/package.json", path.display()))?;
+    let package: NpmPackage = serde_json::from_str(&package)
+        .with_context(|| format!("parsing {}/package.json", path.display()))?;
     Ok(SourceInfo {
-        path: slash(&root),
+        repository: repository(&package.repository.url),
         version: studio_version.to_owned(),
         sha256: hash_paths(&root, files)?,
         revision: git_revision(path),
@@ -96,7 +105,12 @@ pub fn reflection_source(rojo: &Path) -> Result<SourceInfo> {
         .context("finding the resolved reflection package checksum in Rojo Cargo.lock")?;
 
     Ok(SourceInfo {
-        path: format!("crate:{REFLECTION_CRATE}@{version}/bundled"),
+        repository: repository(
+            local_package
+                .repository
+                .as_deref()
+                .context("linked reflection package has no repository")?,
+        ),
         version,
         sha256: checksum,
         revision: None,
@@ -140,6 +154,16 @@ struct LockedPackage {
     name: String,
     version: String,
     checksum: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct NpmPackage {
+    repository: NpmRepository,
+}
+
+#[derive(Deserialize)]
+struct NpmRepository {
+    url: String,
 }
 
 fn rust_files(root: &Path, source: &Path) -> Result<Vec<PathBuf>> {
@@ -230,6 +254,10 @@ fn read_head(git: &Path) -> Option<String> {
             .map(|text| text.trim().to_owned());
     }
     Some(head.to_owned())
+}
+
+fn repository(value: &str) -> String {
+    value.strip_suffix(".git").unwrap_or(value).to_owned()
 }
 
 fn slash(path: &Path) -> String {

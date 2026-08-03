@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use serde_json::{json, Map, Value};
 
 use crate::{
@@ -34,7 +34,7 @@ pub fn build(
     definitions.extend(property_definitions(api, grammar, &formats.enum_variant));
     let (properties, flattened_properties) = properties_definitions(api, &grammar.node)?;
     definitions.extend(properties);
-    definitions.extend(node_definitions(api, &grammar.node)?);
+    definitions.extend(node_definitions(api, grammar)?);
     let definition_count = definitions.len();
 
     let mut schema = grammar.root.clone();
@@ -166,11 +166,19 @@ fn properties_definitions(api: &Api, node: &Node) -> Result<(Map<String, Value>,
     Ok((definitions, count))
 }
 
-fn node_definitions(api: &Api, node: &Node) -> Result<Map<String, Value>> {
+fn node_definitions(api: &Api, grammar: &Grammar) -> Result<Map<String, Value>> {
+    let node = &grammar.node;
+    let inferred = inferred_children(api, grammar)?;
     let mut definitions = Map::new();
+
+    let mut path = node.schema.clone();
+    configure_node(&mut path, node, None, "properties/Path")?;
+    definitions.insert("node/Path".to_owned(), path.clone());
+
     for (name, class) in &api.classes {
         let mut schema = node.schema.clone();
         configure_node(&mut schema, node, Some(name), &format!("properties/{name}"))?;
+        add_children(&mut schema, inferred.get(name))?;
         annotate(
             &mut schema,
             class.summary.as_deref(),
@@ -181,21 +189,108 @@ fn node_definitions(api: &Api, node: &Node) -> Result<Map<String, Value>> {
         definitions.insert(format!("node/{name}"), schema);
     }
 
-    let mut path = node.schema.clone();
-    configure_node(&mut path, node, None, "properties/Path")?;
-    definitions.insert("node/Path".to_owned(), path);
-    definitions.insert(
-        "node/Any".to_owned(),
-        json!({
-            "anyOf": api
-                .classes
-                .keys()
-                .map(|name| reference(&format!("node/{name}")))
-                .chain(std::iter::once(reference("node/Path")))
-                .collect::<Vec<_>>()
-        }),
-    );
+    configure_any(&mut path, api, node, &inferred)?;
+    definitions.insert("node/Any".to_owned(), path);
     Ok(definitions)
+}
+
+fn inferred_children(api: &Api, grammar: &Grammar) -> Result<BTreeMap<String, BTreeSet<String>>> {
+    let mut output = BTreeMap::new();
+    for (parent, inference) in &grammar.inferred {
+        ensure!(
+            api.classes.contains_key(parent),
+            "Rojo infers children beneath unknown class {parent}"
+        );
+        let children = output.entry(parent.clone()).or_insert_with(BTreeSet::new);
+        for name in &inference.names {
+            ensure!(
+                api.classes.contains_key(name),
+                "Rojo infers unknown child class {name} beneath {parent}"
+            );
+            children.insert(name.clone());
+        }
+        for tag in &inference.tags {
+            let mut found = false;
+            for class in api
+                .classes
+                .values()
+                .filter(|class| class.tags.contains(tag))
+            {
+                children.insert(class.name.clone());
+                found = true;
+            }
+            ensure!(found, "Rojo infers {parent} children by unknown tag {tag}");
+        }
+    }
+    Ok(output)
+}
+
+fn configure_any(
+    schema: &mut Value,
+    api: &Api,
+    node: &Node,
+    inferred: &BTreeMap<String, BTreeSet<String>>,
+) -> Result<()> {
+    let object = schema
+        .as_object_mut()
+        .context("Rojo ProjectNode must serialize as an object")?;
+    let fields = object
+        .get_mut("properties")
+        .and_then(Value::as_object_mut)
+        .context("Rojo ProjectNode schema has no property map")?;
+    let generic = fields
+        .remove(&node.properties)
+        .context("Rojo ProjectNode properties field was not found")?;
+    object.remove("additionalProperties");
+    object.insert("unevaluatedProperties".to_owned(), reference("node/Any"));
+
+    let mut null_class = Map::new();
+    null_class.insert(node.class.clone(), json!({ "type": "null" }));
+    let mut generic_fields = Map::new();
+    generic_fields.insert(node.properties.clone(), generic);
+    let mut rules = vec![json!({
+        "if": {
+            "anyOf": [
+                { "not": { "required": [node.class.clone()] } },
+                { "properties": null_class }
+            ]
+        },
+        "then": { "properties": generic_fields }
+    })];
+    for name in api.classes.keys() {
+        let mut predicate_fields = Map::new();
+        predicate_fields.insert(node.class.clone(), json!({ "const": name }));
+        let mut class_fields = Map::new();
+        class_fields.insert(
+            node.properties.clone(),
+            reference(&format!("properties/{name}")),
+        );
+        add_child_fields(&mut class_fields, inferred.get(name));
+        rules.push(json!({
+            "if": {
+                "properties": predicate_fields,
+                "required": [node.class.clone()]
+            },
+            "then": { "properties": class_fields }
+        }));
+    }
+    object.insert("allOf".to_owned(), Value::Array(rules));
+    Ok(())
+}
+
+fn add_children(schema: &mut Value, children: Option<&BTreeSet<String>>) -> Result<()> {
+    let fields = schema
+        .get_mut("properties")
+        .and_then(Value::as_object_mut)
+        .context("Rojo ProjectNode schema has no property map")?;
+    add_child_fields(fields, children);
+    Ok(())
+}
+
+fn add_child_fields(fields: &mut Map<String, Value>, children: Option<&BTreeSet<String>>) {
+    for child in children.into_iter().flatten() {
+        fields.insert(child.clone(), reference(&format!("node/{child}")));
+    }
 }
 
 fn configure_node(
@@ -207,9 +302,6 @@ fn configure_node(
     let object = schema
         .as_object_mut()
         .context("Rojo ProjectNode must serialize as an object")?;
-    if class.is_some() {
-        object.insert("required".to_owned(), json!([node.class]));
-    }
     let fields = object
         .get_mut("properties")
         .and_then(Value::as_object_mut)

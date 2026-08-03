@@ -24,7 +24,7 @@ The compiler keeps its three inputs distinct and applies these rules:
 Version skew is not hidden. Every discovered item receives a coverage
 classification such as `matched`, `api-only`, `reflection-only`,
 `type-conflict`, `metadata-conflict`, or `non-projectable`. Source revisions,
-versions, paths, and SHA-256 hashes are recorded in the manifest.
+repositories, versions, revisions, and SHA-256 hashes are recorded in the manifest.
 
 The source checkouts are read-only inputs. Generation never writes into them.
 

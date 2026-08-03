@@ -127,7 +127,7 @@ pub struct Diagnostic {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceInfo {
-    pub path: String,
+    pub repository: String,
     pub version: String,
     pub sha256: String,
     #[serde(skip_serializing_if = "Option::is_none")]

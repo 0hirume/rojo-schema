@@ -37,6 +37,12 @@ fn schema_is_source_derived_and_class_aware() {
         )
     );
     assert!(manifest["sources"]["rojo"]["version"].is_string());
+    for source in manifest["sources"].as_object().unwrap().values() {
+        assert!(source.get("path").is_none());
+        assert!(source["repository"]
+            .as_str()
+            .is_some_and(|repository| repository.starts_with("https://")));
+    }
 
     let definitions = schema["$defs"].as_object().unwrap();
     let character_auto_loads = &definitions["property/Players/CharacterAutoLoads"];
@@ -77,6 +83,20 @@ fn schema_is_source_derived_and_class_aware() {
     assert_eq!(
         definitions["node/Part"]["properties"]["$className"]["const"],
         "Part"
+    );
+    assert!(definitions["node/Part"].get("required").is_none());
+    assert_eq!(
+        definitions["node/DataModel"]["properties"]["Lighting"]["$ref"],
+        "#/$defs/node~1Lighting"
+    );
+    assert!(definitions["node/Any"].get("anyOf").is_none());
+    assert_eq!(
+        definitions["node/Any"]["unevaluatedProperties"]["$ref"],
+        "#/$defs/node~1Any"
+    );
+    assert_eq!(
+        definitions["node/Any"]["allOf"].as_array().unwrap().len(),
+        usize::try_from(coverage["counts"]["classes"].as_u64().unwrap()).unwrap() + 1
     );
     assert_eq!(
         definitions["properties/Part"]["properties"]["Name"]["$ref"],
@@ -223,7 +243,7 @@ fn assert_property_metadata(schema: &Value) {
 
 #[test]
 fn draft_schema_and_projects_validate() {
-    let schema = fixture_schema(artifact("rojo.schema.json"));
+    let schema = artifact("rojo.schema.json");
     let validator = Validator::options()
         .with_draft(Draft::Draft202012)
         .build(&schema)
@@ -301,36 +321,4 @@ fn assert_valid(validator: &Validator, value: &Value, name: &str) {
             .collect::<Vec<_>>();
         panic!("{name} failed schema validation:\n{}", errors.join("\n"));
     }
-}
-
-fn fixture_schema(mut schema: Value) -> Value {
-    let classes = BTreeSet::from([
-        "DataModel",
-        "Folder",
-        "HttpService",
-        "Lighting",
-        "Model",
-        "Part",
-        "ReplicatedStorage",
-        "ServerScriptService",
-        "SoundService",
-        "StarterCharacterScripts",
-        "StarterPlayer",
-        "StarterPlayerScripts",
-        "Terrain",
-        "Workspace",
-    ]);
-    let definitions = schema["$defs"].as_object_mut().unwrap();
-    definitions.retain(|name, _| {
-        name.strip_prefix("node/")
-            .is_none_or(|name| matches!(name, "Any" | "Path") || classes.contains(name))
-    });
-    definitions.get_mut("node/Any").unwrap()["anyOf"] = Value::Array(
-        classes
-            .iter()
-            .map(|name| json!({ "$ref": format!("#/$defs/node~1{name}") }))
-            .chain(std::iter::once(json!({ "$ref": "#/$defs/node~1Path" })))
-            .collect(),
-    );
-    schema
 }
