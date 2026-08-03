@@ -1,0 +1,153 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  draft:
+    name: Create draft
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Create the draft and upload schema assets.
+    steps:
+      - name: Clone tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: gh repo clone "$REPOSITORY" . -- --branch "$RELEASE_TAG" --depth 1
+
+      - name: Create draft and upload schemas
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --repo "$REPOSITORY" \
+              --verify-tag \
+              --draft \
+              --generate-notes
+          fi
+
+          gh release upload "$RELEASE_TAG" \
+            dist/rojo.schema.json \
+            dist/manifest.json \
+            dist/coverage.json \
+            --repo "$REPOSITORY" \
+            --clobber
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: draft
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+            suffix: ""
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+            suffix: .exe
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+            archive: tar.gz
+            suffix: ""
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            archive: tar.gz
+            suffix: ""
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write # Upload this target's release assets.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Clone tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: gh repo clone "$REPOSITORY" . -- --branch "$RELEASE_TAG" --depth 1
+
+      - name: Install Rust nightly
+        env:
+          TARGET: ${{ matrix.target }}
+        run: rustup toolchain install nightly --profile minimal --target "$TARGET"
+
+      - name: Build
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo +nightly build --release --locked --target "$TARGET"
+
+      - name: Package
+        env:
+          ARCHIVE: ${{ matrix.archive }}
+          SUFFIX: ${{ matrix.suffix }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          binary="target/$TARGET/release/rojo-schema$SUFFIX"
+          archive="rojo-schema-$TARGET.$ARCHIVE"
+          archive_path="$PWD/artifacts/$archive"
+          mkdir -p artifacts
+
+          if [[ "$ARCHIVE" == "zip" ]]; then
+            (cd "$(dirname "$binary")" && 7z a "$archive_path" "$(basename "$binary")")
+          else
+            tar -C "$(dirname "$binary")" -czf "$archive_path" "$(basename "$binary")"
+          fi
+
+          cd artifacts
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$archive" >"$archive.sha256"
+          else
+            shasum -a 256 "$archive" >"$archive.sha256"
+          fi
+
+      - name: Upload binary
+        env:
+          ARCHIVE: ${{ matrix.archive }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          archive="artifacts/rojo-schema-$TARGET.$ARCHIVE"
+          gh release upload "$RELEASE_TAG" \
+            "$archive" \
+            "$archive.sha256" \
+            --repo "$REPOSITORY" \
+            --clobber
+
+  publish:
+    name: Publish
+    needs:
+      - draft
+      - build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Publish the completed draft release.
+    steps:
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: >-
+          gh release edit "$RELEASE_TAG"
+          --repo "$REPOSITORY"
+          --draft=false
+          --latest
