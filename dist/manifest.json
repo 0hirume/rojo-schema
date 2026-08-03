@@ -1,0 +1,42 @@
+{
+  "generator": "rojo-schema 0.1.0",
+  "schemaDraft": "https://json-schema.org/draft/2020-12/schema",
+  "schemaId": "https://github.com/0hirume/rojo-schema/raw/refs/heads/main/dist/rojo.schema.json",
+  "sources": {
+    "creatorDocs": {
+      "path": "../../../../src/creator-docs/content/en-us/reference/engine",
+      "version": "0.732.0.7321040",
+      "sha256": "1cb9baee80b1144887e0a51f083256d944d0c49f52942520f81680e61ba24031",
+      "revision": "c855f3c1b274007b0b2739ed34d89325342157e0"
+    },
+    "reflection": {
+      "path": "crate:rbx_reflection_database@3.0.0+roblox-728/bundled",
+      "version": "3.0.0+roblox-728",
+      "sha256": "3f5dd357c4c95d43e12283b9065b8b7b41788219db7a0f3a77a6e111f51522e6"
+    },
+    "rojo": {
+      "path": "../../../../src/rojo",
+      "version": "7.7.0",
+      "sha256": "9355fd3783e46b19f52e1e150189385c8dc855e37e081b26eddeec92716b734e",
+      "revision": "a30a8ecd0f757a23c7d5be5f91e8a4d55d87b8fc"
+    }
+  },
+  "counts": {
+    "classes": 892,
+    "properties": 3936,
+    "flattenedProperties": 26846,
+    "enums": 596,
+    "enumItems": 3480,
+    "definitions": 6386,
+    "variantTypes": 41,
+    "apiItems": 11592,
+    "conflicts": 1858,
+    "unclassified": 0,
+    "schemaBytes": 8985312
+  },
+  "limitations": [
+    "The class produced by a filesystem path cannot be selected statically, so path-backed nodes use the reflected property-name set and Rojo's general unresolved-value grammar.",
+    "Serializer formats without a reflected default sample are represented conservatively instead of being guessed.",
+    "Rojo runtime validation, filesystem access, and glob compilation are outside JSON Schema."
+  ]
+}
