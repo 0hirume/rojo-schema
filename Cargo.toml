@@ -1,6 +1,7 @@
 [package]
 name = "rojo-schema"
 version = "0.1.0"
+publish = false
 edition = "2021"
 rust-version = "1.97"
 description = "Deterministic JSON Schema compiler for Rojo project files"
@@ -8,6 +9,9 @@ repository = "https://github.com/0hirume/rojo-schema"
 license = "MIT OR Apache-2.0"
 keywords = ["json-schema", "roblox", "rojo"]
 categories = ["config", "development-tools"]
+
+[package.metadata.release]
+publish = false
 
 [lib]
 name = "rojo_schema"
