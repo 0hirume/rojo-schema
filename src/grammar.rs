@@ -4,13 +4,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use serde_json::{json, Map, Value};
 use syn::{
     meta::ParseNestedMeta,
     visit::{self, Visit},
-    AngleBracketedGenericArguments, Attribute, Expr, ExprCall, Fields, GenericArgument, Item,
-    ItemEnum, ItemImpl, ItemStruct, ItemType, Lit, Meta, PathArguments, Type, TypePath,
+    AngleBracketedGenericArguments, Arm, Attribute, Expr, ExprCall, Fields, GenericArgument,
+    ImplItem, Item, ItemEnum, ItemImpl, ItemStruct, ItemType, Lit, Meta, Pat, PathArguments, Type,
+    TypePath,
 };
 
 const PROJECT: &str = "Project";
@@ -20,6 +21,7 @@ const NODE: &str = "ProjectNode";
 pub struct Grammar {
     pub root: Value,
     pub definitions: Map<String, Value>,
+    pub compact: BTreeMap<String, Value>,
     pub tree: String,
     pub node: Node,
 }
@@ -38,6 +40,7 @@ struct Definitions {
     enums: BTreeMap<String, ItemEnum>,
     aliases: BTreeMap<String, ItemType>,
     strings: BTreeSet<String>,
+    compact: BTreeMap<String, String>,
 }
 
 pub fn load(root: &Path) -> Result<Grammar> {
@@ -47,7 +50,7 @@ pub fn load(root: &Path) -> Result<Grammar> {
             .with_context(|| format!("reading Rojo source {}", path.display()))?;
         let file = syn::parse_file(&source)
             .with_context(|| format!("parsing Rojo source {}", path.display()))?;
-        collect_items(&file.items, &mut definitions);
+        collect_items(&file.items, &mut definitions)?;
     }
 
     let tree = project_tree(&definitions)?;
@@ -62,10 +65,12 @@ pub fn load(root: &Path) -> Result<Grammar> {
         .get(&node_key)
         .cloned()
         .context("ProjectNode was not reachable from Project")?;
+    let compact = compact_schemas(&definitions, &mut builder)?;
 
     Ok(Grammar {
         root,
         definitions: builder.output,
+        compact,
         tree,
         node: Node {
             schema,
@@ -98,7 +103,7 @@ fn rust_files(root: &Path) -> Result<Vec<PathBuf>> {
     Ok(output)
 }
 
-fn collect_items(items: &[Item], definitions: &mut Definitions) {
+fn collect_items(items: &[Item], definitions: &mut Definitions) -> Result<()> {
     for item in items {
         match item {
             Item::Struct(item) => {
@@ -119,36 +124,56 @@ fn collect_items(items: &[Item], definitions: &mut Definitions) {
                     .entry(item.ident.to_string())
                     .or_insert_with(|| item.clone());
             }
-            Item::Impl(item) => collect_impl(item, definitions),
+            Item::Impl(item) => collect_impl(item, definitions)?,
             Item::Mod(item) => {
                 if let Some((_, items)) = &item.content {
-                    collect_items(items, definitions);
+                    collect_items(items, definitions)?;
                 }
             }
             _ => {}
         }
     }
+    Ok(())
 }
 
-fn collect_impl(item: &ItemImpl, definitions: &mut Definitions) {
-    let Some((trait_path, _)) = &item.trait_ else {
-        return;
-    };
-    if trait_path
-        .segments
-        .last()
-        .is_none_or(|segment| segment.ident != "Deserialize")
-    {
-        return;
-    }
+fn collect_impl(item: &ItemImpl, definitions: &mut Definitions) -> Result<()> {
     let Some(name) = type_name(&item.self_ty) else {
-        return;
+        return Ok(());
     };
-    let mut visitor = StringDeserializer::default();
-    visitor.visit_item_impl(item);
-    if visitor.found {
-        definitions.strings.insert(name);
+    if item.trait_.as_ref().is_some_and(|(trait_path, _)| {
+        trait_path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "Deserialize")
+    }) {
+        let mut visitor = StringDeserializer::default();
+        visitor.visit_item_impl(item);
+        if visitor.found {
+            definitions.strings.insert(name.clone());
+        }
     }
+    if name == "AmbiguousValue" {
+        let mut visitor = CompactResolver::default();
+        for member in &item.items {
+            if let ImplItem::Fn(method) = member {
+                if method.sig.ident == "resolve" {
+                    visitor.visit_block(&method.block);
+                }
+            }
+        }
+        for (variant, ambiguous) in visitor.values {
+            if let Some(previous) = definitions
+                .compact
+                .insert(variant.clone(), ambiguous.clone())
+            {
+                ensure!(
+                    previous == ambiguous,
+                    "Rojo resolves {variant} through both {previous} and {ambiguous}"
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 #[derive(Default)]
@@ -171,6 +196,72 @@ impl<'ast> Visit<'ast> for StringDeserializer {
         }
         visit::visit_expr_call(self, node);
     }
+}
+
+#[derive(Default)]
+struct CompactResolver {
+    values: Vec<(String, String)>,
+}
+
+impl<'ast> Visit<'ast> for CompactResolver {
+    fn visit_arm(&mut self, node: &'ast Arm) {
+        if expression_calls(&node.body, "Ok") {
+            if let Some(value) = resolution_pair(&node.pat) {
+                self.values.push(value);
+            }
+        }
+        visit::visit_arm(self, node);
+    }
+}
+
+#[derive(Default)]
+struct CallFinder<'a> {
+    name: &'a str,
+    found: bool,
+}
+
+impl<'ast> Visit<'ast> for CallFinder<'_> {
+    fn visit_expr_call(&mut self, node: &'ast ExprCall) {
+        if let Expr::Path(path) = node.func.as_ref() {
+            if path
+                .path
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == self.name)
+            {
+                self.found = true;
+            }
+        }
+        visit::visit_expr_call(self, node);
+    }
+}
+
+fn expression_calls(expression: &Expr, name: &str) -> bool {
+    let mut visitor = CallFinder { name, found: false };
+    visitor.visit_expr(expression);
+    visitor.found
+}
+
+fn resolution_pair(pattern: &Pat) -> Option<(String, String)> {
+    let Pat::Tuple(tuple) = pattern else {
+        return None;
+    };
+    let mut patterns = tuple.elems.iter();
+    let variant = pattern_variant(patterns.next()?, "VariantType")?;
+    let ambiguous = pattern_variant(patterns.next()?, "AmbiguousValue")?;
+    patterns.next().is_none().then_some((variant, ambiguous))
+}
+
+fn pattern_variant(pattern: &Pat, owner: &str) -> Option<String> {
+    let path = match pattern {
+        Pat::Path(pattern) => &pattern.path,
+        Pat::TupleStruct(pattern) => &pattern.path,
+        _ => return None,
+    };
+    let mut segments = path.segments.iter().rev();
+    let variant = segments.next()?;
+    let parent = segments.next()?;
+    (parent.ident == owner).then(|| variant.ident.to_string())
 }
 
 struct Roles {
@@ -232,6 +323,33 @@ fn node_roles(definitions: &Definitions) -> Result<Roles> {
         properties,
         value,
     })
+}
+
+fn compact_schemas(
+    definitions: &Definitions,
+    builder: &mut Builder<'_>,
+) -> Result<BTreeMap<String, Value>> {
+    ensure!(
+        !definitions.compact.is_empty(),
+        "Rojo compact value resolver mappings were not found"
+    );
+    let ambiguous = definitions
+        .enums
+        .get("AmbiguousValue")
+        .context("Rojo AmbiguousValue enum was not found")?;
+    let attributes = ContainerAttrs::parse(&ambiguous.attrs)?;
+    definitions
+        .compact
+        .iter()
+        .map(|(variant, name)| {
+            let item = ambiguous
+                .variants
+                .iter()
+                .find(|item| item.ident == name)
+                .with_context(|| format!("Rojo AmbiguousValue::{name} was not found"))?;
+            Ok((variant.clone(), builder.variant(item, &attributes)?))
+        })
+        .collect()
 }
 
 struct Builder<'a> {
@@ -428,62 +546,7 @@ impl<'a> Builder<'a> {
             if variant_attributes.skip {
                 continue;
             }
-            let name = variant_attributes.rename.clone().unwrap_or_else(|| {
-                rename(&variant.ident.to_string(), attributes.rename_all.as_deref())
-            });
-            let value = match &variant.fields {
-                Fields::Unit => json!({ "const": name }),
-                Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
-                    let inner = self.ty(&fields.unnamed[0].ty)?;
-                    if attributes.untagged {
-                        inner
-                    } else {
-                        tagged(&name, inner)
-                    }
-                }
-                Fields::Unnamed(fields) => {
-                    let items = fields
-                        .unnamed
-                        .iter()
-                        .map(|field| self.ty(&field.ty))
-                        .collect::<Result<Vec<_>>>()?;
-                    let inner = tuple_schema(&items);
-                    if attributes.untagged {
-                        inner
-                    } else {
-                        tagged(&name, inner)
-                    }
-                }
-                Fields::Named(fields) => {
-                    let mut properties = Map::new();
-                    let mut required = Vec::new();
-                    for field in &fields.named {
-                        let field_attributes = FieldAttrs::parse(&field.attrs)?;
-                        if field_attributes.skip {
-                            continue;
-                        }
-                        let field_name = field_name(field, attributes.rename_all.as_deref())?;
-                        if !is_option(&field.ty) && !field_attributes.default {
-                            required.push(field_name.clone());
-                        }
-                        properties.insert(field_name, self.ty(&field.ty)?);
-                    }
-                    let mut inner = json!({
-                        "type": "object",
-                        "properties": properties,
-                        "additionalProperties": false
-                    });
-                    if !required.is_empty() {
-                        inner["required"] = json!(required);
-                    }
-                    if attributes.untagged {
-                        inner
-                    } else {
-                        tagged(&name, inner)
-                    }
-                }
-            };
-            variants.push(value);
+            variants.push(self.variant(variant, &attributes)?);
         }
         let mut schema = if variants.len() == 1 {
             variants.pop().expect("one variant")
@@ -492,6 +555,65 @@ impl<'a> Builder<'a> {
         };
         describe(&mut schema, &item.attrs);
         Ok(schema)
+    }
+
+    fn variant(&mut self, variant: &syn::Variant, attributes: &ContainerAttrs) -> Result<Value> {
+        let variant_attributes = FieldAttrs::parse(&variant.attrs)?;
+        let name = variant_attributes.rename.unwrap_or_else(|| {
+            rename(&variant.ident.to_string(), attributes.rename_all.as_deref())
+        });
+        match &variant.fields {
+            Fields::Unit => Ok(json!({ "const": name })),
+            Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+                let inner = self.ty(&fields.unnamed[0].ty)?;
+                Ok(if attributes.untagged {
+                    inner
+                } else {
+                    tagged(&name, inner)
+                })
+            }
+            Fields::Unnamed(fields) => {
+                let items = fields
+                    .unnamed
+                    .iter()
+                    .map(|field| self.ty(&field.ty))
+                    .collect::<Result<Vec<_>>>()?;
+                let inner = tuple_schema(&items);
+                Ok(if attributes.untagged {
+                    inner
+                } else {
+                    tagged(&name, inner)
+                })
+            }
+            Fields::Named(fields) => {
+                let mut properties = Map::new();
+                let mut required = Vec::new();
+                for field in &fields.named {
+                    let field_attributes = FieldAttrs::parse(&field.attrs)?;
+                    if field_attributes.skip {
+                        continue;
+                    }
+                    let field_name = field_name(field, attributes.rename_all.as_deref())?;
+                    if !is_option(&field.ty) && !field_attributes.default {
+                        required.push(field_name.clone());
+                    }
+                    properties.insert(field_name, self.ty(&field.ty)?);
+                }
+                let mut inner = json!({
+                    "type": "object",
+                    "properties": properties,
+                    "additionalProperties": false
+                });
+                if !required.is_empty() {
+                    inner["required"] = json!(required);
+                }
+                Ok(if attributes.untagged {
+                    inner
+                } else {
+                    tagged(&name, inner)
+                })
+            }
+        }
     }
 }
 
@@ -761,6 +883,9 @@ mod tests {
         let grammar = load(Path::new("../../../../src/rojo/src")).unwrap();
         assert_eq!(grammar.root["required"], json!(["tree"]));
         assert!(grammar.definitions.contains_key("rojo/ProjectNode"));
+        assert_eq!(grammar.compact["Bool"], json!({ "type": "boolean" }));
+        assert_eq!(grammar.compact["CFrame"]["type"], "array");
+        assert!(!grammar.compact.contains_key("Ref"));
         assert_eq!(grammar.tree, "tree");
     }
 }

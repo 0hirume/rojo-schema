@@ -9,6 +9,7 @@ use serde_reflection::{
 
 pub struct Formats {
     pub root: String,
+    pub enum_variant: String,
     pub variants: BTreeSet<String>,
     pub definitions: Map<String, Value>,
 }
@@ -59,6 +60,7 @@ pub fn values() -> Result<Formats> {
     let definitions = definitions(&registry, &root, &variants)?;
     Ok(Formats {
         root,
+        enum_variant: format!("{:?}", VariantType::Enum),
         variants,
         definitions,
     })

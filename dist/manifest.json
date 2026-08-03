@@ -32,7 +32,7 @@
     "apiItems": 11592,
     "conflicts": 1858,
     "unclassified": 0,
-    "schemaBytes": 8985293
+    "schemaBytes": 9297070
   },
   "limitations": [
     "The class produced by a filesystem path cannot be selected statically, so path-backed nodes use the reflected property-name set and Rojo's general unresolved-value grammar.",

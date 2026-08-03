@@ -31,7 +31,7 @@ pub fn build(
     definitions.extend(grammar.definitions.clone());
     link_external_formats(&mut definitions, formats);
     definitions.extend(enum_definitions(api));
-    definitions.extend(property_definitions(api, &grammar.node));
+    definitions.extend(property_definitions(api, grammar, &formats.enum_variant));
     let (properties, flattened_properties) = properties_definitions(api, &grammar.node)?;
     definitions.extend(properties);
     definitions.extend(node_definitions(api, &grammar.node)?);
@@ -103,14 +103,20 @@ fn enum_definitions(api: &Api) -> Map<String, Value> {
         .collect()
 }
 
-fn property_definitions(api: &Api, node: &Node) -> Map<String, Value> {
+fn property_definitions(api: &Api, grammar: &Grammar, enum_variant: &str) -> Map<String, Value> {
     api.classes
         .values()
         .flat_map(|class| {
             class.properties.values().map(|property| {
                 (
                     format!("property/{}/{}", property.owner, property.name),
-                    property_schema(property, &node.value),
+                    property_schema(
+                        api,
+                        property,
+                        &grammar.compact,
+                        &grammar.definitions,
+                        enum_variant,
+                    ),
                 )
             })
         })
@@ -248,10 +254,32 @@ fn flattened<'a>(api: &'a Api, class: &'a Class) -> Result<BTreeMap<String, &'a 
     Ok(properties)
 }
 
-fn property_schema(property: &Property, value: &str) -> Value {
-    let mut schema = match &property.data_type {
-        PropertyType::Enum(name) => reference(&format!("enum/{name}")),
-        PropertyType::Value(_) => reference(&format!("rojo/{value}")),
+fn property_schema(
+    api: &Api,
+    property: &Property,
+    compact: &BTreeMap<String, Value>,
+    definitions: &Map<String, Value>,
+    enum_variant: &str,
+) -> Value {
+    let (mut schema, default) = match &property.data_type {
+        PropertyType::Enum(name) => (
+            choice(vec![
+                reference(&format!("enum/{name}")),
+                reference(&format!("value/{enum_variant}")),
+            ]),
+            enum_default(api, name, enum_variant, property.default.as_ref()),
+        ),
+        PropertyType::Value(name) => {
+            let qualified = reference(&format!("value/{name}"));
+            if let Some(schema) = compact.get(name) {
+                (
+                    choice(vec![schema.clone(), qualified]),
+                    compact_default(name, property.default.as_ref(), schema, definitions),
+                )
+            } else {
+                (qualified, property.default.clone())
+            }
+        }
     };
     annotate(
         &mut schema,
@@ -282,8 +310,8 @@ fn property_schema(property: &Property, value: &str) -> Value {
             json!(property.migration_targets),
         );
     }
-    if let Some(default) = &property.default {
-        object.insert("default".to_owned(), default.clone());
+    if let Some(default) = default {
+        object.insert("default".to_owned(), default);
     }
     if let Some(security) = &property.security {
         object.insert("x-roblox-security".to_owned(), security.clone());
@@ -301,6 +329,110 @@ fn property_schema(property: &Property, value: &str) -> Value {
         );
     }
     schema
+}
+
+fn enum_default(api: &Api, name: &str, variant: &str, default: Option<&Value>) -> Option<Value> {
+    let value = default?.get(variant)?.as_u64()?;
+    api.enums
+        .get(name)?
+        .items
+        .values()
+        .find(|item| u64::from(item.value) == value)
+        .map(|item| json!(item.name))
+}
+
+fn compact_default(
+    name: &str,
+    default: Option<&Value>,
+    schema: &Value,
+    definitions: &Map<String, Value>,
+) -> Option<Value> {
+    let mut value = default?.get(name)?.clone();
+    loop {
+        if accepts(&value, schema, definitions) {
+            return Some(value);
+        }
+        let object = value.as_object()?;
+        if object.len() != 1 {
+            return None;
+        }
+        value = object.values().next()?.clone();
+    }
+}
+
+fn accepts(value: &Value, schema: &Value, definitions: &Map<String, Value>) -> bool {
+    let Some(schema) = schema.as_object() else {
+        return schema.as_bool().unwrap_or(false);
+    };
+    if schema.contains_key("$ref") {
+        return definitions.iter().any(|(name, target)| {
+            Value::Object(schema.clone()) == reference(name) && accepts(value, target, definitions)
+        });
+    }
+    if let Some(expected) = schema.get("const") {
+        if value != expected {
+            return false;
+        }
+    }
+    if let Some(options) = schema.get("anyOf").and_then(Value::as_array) {
+        if !options
+            .iter()
+            .any(|option| accepts(value, option, definitions))
+        {
+            return false;
+        }
+    }
+    if let Some(options) = schema.get("allOf").and_then(Value::as_array) {
+        if !options
+            .iter()
+            .all(|option| accepts(value, option, definitions))
+        {
+            return false;
+        }
+    }
+    match schema.get("type").and_then(Value::as_str) {
+        Some("null") => value.is_null(),
+        Some("boolean") => value.is_boolean(),
+        Some("string") => value.is_string(),
+        Some("number") => value.is_number(),
+        Some("integer") => value.as_i64().is_some() || value.as_u64().is_some(),
+        Some("array") => array_accepts(value, schema, definitions),
+        Some("object") => value.is_object(),
+        Some(_) => false,
+        None => true,
+    }
+}
+
+fn array_accepts(
+    value: &Value,
+    schema: &Map<String, Value>,
+    definitions: &Map<String, Value>,
+) -> bool {
+    let Some(items) = value.as_array() else {
+        return false;
+    };
+    if schema
+        .get("minItems")
+        .and_then(Value::as_u64)
+        .is_some_and(|minimum| items.len() < usize::try_from(minimum).unwrap_or(usize::MAX))
+        || schema
+            .get("maxItems")
+            .and_then(Value::as_u64)
+            .is_some_and(|maximum| items.len() > usize::try_from(maximum).unwrap_or(0))
+    {
+        return false;
+    }
+    schema
+        .get("items")
+        .is_none_or(|item| items.iter().all(|value| accepts(value, item, definitions)))
+}
+
+fn choice(mut options: Vec<Value>) -> Value {
+    if options.len() == 1 {
+        options.pop().expect("one option")
+    } else {
+        json!({ "anyOf": options })
+    }
 }
 
 fn annotate(

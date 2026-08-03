@@ -39,6 +39,19 @@ fn schema_is_source_derived_and_class_aware() {
     assert!(manifest["sources"]["rojo"]["version"].is_string());
 
     let definitions = schema["$defs"].as_object().unwrap();
+    let character_auto_loads = &definitions["property/Players/CharacterAutoLoads"];
+    assert_eq!(character_auto_loads["anyOf"][0]["type"], "boolean");
+    assert_eq!(
+        character_auto_loads["anyOf"][1]["$ref"],
+        "#/$defs/value~1Bool"
+    );
+    assert_eq!(character_auto_loads["default"], true);
+    let technology = &definitions["property/Lighting/Technology"];
+    assert!(technology["default"].is_string());
+    assert!(definitions["enum/Technology"]["enum"]
+        .as_array()
+        .unwrap()
+        .contains(&technology["default"]));
     for prefix in [
         "rojo/",
         "serde/",
