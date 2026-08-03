@@ -6,7 +6,7 @@ on:
       - "v*"
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 permissions: {}
@@ -137,6 +137,7 @@ jobs:
     needs:
       - draft
       - build
+      - pages
     runs-on: ubuntu-latest
     permissions:
       contents: write # Publish the completed draft release.
@@ -151,3 +152,59 @@ jobs:
           --repo "$REPOSITORY"
           --draft=false
           --latest
+
+  pages:
+    name: Deploy schemas
+    needs:
+      - draft
+      - build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Update the GitHub Pages branch.
+    steps:
+      - name: Clone release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: gh repo clone "$REPOSITORY" source -- --branch "$RELEASE_TAG" --depth 1
+
+      - name: Update Pages branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          gh auth setup-git
+          repository_url="https://github.com/$REPOSITORY.git"
+
+          if git ls-remote --exit-code --heads "$repository_url" gh-pages >/dev/null 2>&1; then
+            gh repo clone "$REPOSITORY" site -- --branch gh-pages --single-branch --depth 1
+          else
+            git init site
+            git -C site switch --orphan gh-pages
+            git -C site remote add origin "$repository_url"
+          fi
+
+          version_path="site/$RELEASE_TAG"
+          if [[ -d "$version_path" ]]; then
+            diff -qr source/dist "$version_path"
+          else
+            mkdir -p "$version_path"
+            cp -R source/dist/. "$version_path/"
+          fi
+
+          rm -rf site/latest
+          mkdir -p site/latest
+          cp -R source/dist/. site/latest/
+          touch site/.nojekyll
+
+          git -C site add .
+          if git -C site diff --cached --quiet; then
+            exit 0
+          fi
+
+          git -C site config user.name "github-actions[bot]"
+          git -C site config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C site commit -m "Deploy $RELEASE_TAG"
+          git -C site push origin gh-pages

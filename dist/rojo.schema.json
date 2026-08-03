@@ -238800,7 +238800,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/0hirume/rojo-schema/raw/refs/heads/main/dist/rojo.schema.json",
+  "$id": "https://0hirume.github.io/rojo-schema/latest/rojo.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "Rojo 7.7.0 project file targeting bundled Roblox reflection 0.728.0.7280895 and Creator Docs Studio 0.732.0.7321040.",

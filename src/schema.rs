@@ -24,8 +24,8 @@ pub fn build(
     formats: &Formats,
 ) -> Result<Output> {
     let schema_id = format!(
-        "{}/raw/refs/heads/main/dist/rojo.schema.json",
-        env!("CARGO_PKG_REPOSITORY").trim_end_matches('/')
+        "{}/latest/rojo.schema.json",
+        env!("CARGO_PKG_HOMEPAGE").trim_end_matches('/')
     );
     let mut definitions = formats.definitions.clone();
     definitions.extend(grammar.definitions.clone());

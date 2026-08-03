@@ -1,7 +1,7 @@
 {
   "generator": "rojo-schema 0.1.0",
   "schemaDraft": "https://json-schema.org/draft/2020-12/schema",
-  "schemaId": "https://github.com/0hirume/rojo-schema/raw/refs/heads/main/dist/rojo.schema.json",
+  "schemaId": "https://0hirume.github.io/rojo-schema/latest/rojo.schema.json",
   "sources": {
     "creatorDocs": {
       "path": "../../../../src/creator-docs/content/en-us/reference/engine",
@@ -32,7 +32,7 @@
     "apiItems": 11592,
     "conflicts": 1858,
     "unclassified": 0,
-    "schemaBytes": 8985312
+    "schemaBytes": 8985293
   },
   "limitations": [
     "The class produced by a filesystem path cannot be selected statically, so path-backed nodes use the reflected property-name set and Rojo's general unresolved-value grammar.",

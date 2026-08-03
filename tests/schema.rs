@@ -32,8 +32,8 @@ fn schema_is_source_derived_and_class_aware() {
     assert_eq!(
         schema["$id"],
         format!(
-            "{}/raw/refs/heads/main/dist/rojo.schema.json",
-            env!("CARGO_PKG_REPOSITORY").trim_end_matches('/')
+            "{}/latest/rojo.schema.json",
+            env!("CARGO_PKG_HOMEPAGE").trim_end_matches('/')
         )
     );
     assert!(manifest["sources"]["rojo"]["version"].is_string());

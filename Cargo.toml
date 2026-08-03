@@ -5,6 +5,7 @@ publish = false
 edition = "2021"
 rust-version = "1.97"
 description = "Deterministic JSON Schema compiler for Rojo project files"
+homepage = "https://0hirume.github.io/rojo-schema"
 repository = "https://github.com/0hirume/rojo-schema"
 license = "MIT OR Apache-2.0"
 keywords = ["json-schema", "roblox", "rojo"]
