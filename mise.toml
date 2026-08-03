@@ -1,2 +1,4 @@
 [tools]
 "aqua:tombi-toml/tombi" = "latest"
+"github:zizmorcore/zizmor" = "latest"
+"npm:@actions/languageserver" = "latest"
