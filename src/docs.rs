@@ -160,7 +160,7 @@ fn apply_deprecations(
             .with_context(|| format!("deprecation property not found: {property_name}"))?;
         let upstream = property
             .deprecation_message
-            .as_deref()
+            .take()
             .with_context(|| format!("deprecation message missing: {property_name}"))?;
         let reason = deprecation.reason.trim();
         if reason.is_empty() {
@@ -175,7 +175,7 @@ fn apply_deprecations(
         property.deprecation_warning_suppressed = true;
         applied.push(DeprecationOverride {
             property: property_name.clone(),
-            upstream: upstream.to_owned(),
+            upstream,
             reason: reason.to_owned(),
         });
     }
@@ -332,11 +332,12 @@ mod tests {
             .unwrap();
 
         assert!(!property.deprecated());
+        assert!(property.deprecation_message.is_none());
         assert!(property
             .description
             .as_deref()
             .unwrap()
-            .contains("Upstream deprecation note"));
+            .contains("Superseded by newer lighting controls."));
         assert_eq!(applied[0].property, "Lighting.Technology");
     }
 

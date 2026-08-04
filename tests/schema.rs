@@ -169,14 +169,12 @@ fn assert_deprecation_overrides(schema: &Value, coverage: &Value) {
     ] {
         let property = &definitions[property];
         assert!(property.get("deprecated").is_none());
-        assert!(property["deprecationMessage"].is_string());
-        assert_eq!(
-            property["deprecationMessage"],
-            property["x-roblox-deprecation-message"]
-        );
-        assert!(property["description"]
-            .as_str()
-            .is_some_and(|description| description.contains("Compatibility note:")));
+        assert!(property.get("deprecationMessage").is_none());
+        assert!(property.get("x-roblox-deprecation-message").is_none());
+        assert!(property["description"].as_str().is_some_and(|description| {
+            description.contains("Compatibility note:")
+                && description.contains("Upstream deprecation note:")
+        }));
     }
     let deprecation_overrides = coverage["deprecationOverrides"].as_array().unwrap();
     assert_eq!(deprecation_overrides.len(), 2);
