@@ -23,6 +23,29 @@ def copy-dist [destination: path] {
     }
 }
 
+def create-draft [] {
+    let release = (completed gh [
+        "release"
+        "view"
+        $env.RELEASE_TAG
+        "--repo"
+        $env.REPOSITORY
+    ])
+    if $release.exit_code == 0 {
+        return
+    }
+    checked gh [
+        "release"
+        "create"
+        $env.RELEASE_TAG
+        "--repo"
+        $env.REPOSITORY
+        "--verify-tag"
+        "--draft"
+        "--generate-notes"
+    ] | ignore
+}
+
 def package-release [] {
     let binary = (["target" $env.TARGET "release" $"rojo-schema($env.SUFFIX)"] | path join)
     let archive = $"rojo-schema-($env.TARGET).($env.ARCHIVE)"
@@ -60,6 +83,18 @@ def upload-release [] {
         "--repo"
         $env.REPOSITORY
         "--clobber"
+    ] | ignore
+}
+
+def publish-release [] {
+    checked gh [
+        "release"
+        "edit"
+        $env.RELEASE_TAG
+        "--repo"
+        $env.REPOSITORY
+        "--draft=false"
+        "--latest"
     ] | ignore
 }
 
@@ -135,8 +170,10 @@ def update-pages [] {
 
 def main [command: string] {
     match $command {
+        "draft" => { create-draft }
         "package" => { package-release }
         "upload" => { upload-release }
+        "publish" => { publish-release }
         "pages" => { update-pages }
         _ => { error make { msg: $"unknown release command: ($command)" } }
     }
