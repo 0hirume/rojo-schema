@@ -1,0 +1,7 @@
+{
+  "$schema": "https://0hirume.github.io/rojo-schema/latest/project.schema.json",
+  "tree": {
+    "$className": "DataModel",
+    "Assets": { "$path": "assets" }
+  }
+}

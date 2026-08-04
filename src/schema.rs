@@ -197,7 +197,10 @@ fn node_definitions(api: &Api, grammar: &Grammar) -> Result<Map<String, Value>> 
 
     let mut generic = node.schema.clone();
     configure_node(&mut generic, node, None, generic_properties(api, node))?;
-    definitions.insert("node/Any".to_owned(), node_union(generic, api, node)?);
+    definitions.insert(
+        "node/Any".to_owned(),
+        node_dispatch(generic, api, node, &inferred)?,
+    );
     Ok(definitions)
 }
 
@@ -314,25 +317,61 @@ fn generic_properties(api: &Api, node: &Node) -> Value {
     })
 }
 
-fn node_union(mut generic: Value, api: &Api, node: &Node) -> Result<Value> {
-    let fields = generic
+fn node_dispatch(
+    mut generic: Value,
+    api: &Api,
+    node: &Node,
+    inferred: &BTreeMap<String, BTreeSet<String>>,
+) -> Result<Value> {
+    let object = generic
         .as_object_mut()
-        .context("Rojo ProjectNode must serialize as an object")?
+        .context("Rojo ProjectNode must serialize as an object")?;
+    let fields = object
         .get_mut("properties")
         .and_then(Value::as_object_mut)
         .context("Rojo ProjectNode schema has no property map")?;
-    fields.insert(node.class.clone(), json!({ "type": "null" }));
+    let properties = fields
+        .remove(&node.properties)
+        .context("Rojo ProjectNode properties field was not found")?;
+    object.remove("additionalProperties");
+    object.insert("unevaluatedProperties".to_owned(), reference("node/Any"));
 
-    let mut branches = vec![generic];
-    branches.extend(api.classes.keys().map(|name| {
-        let mut branch = reference(&format!("node/{name}"));
-        branch
-            .as_object_mut()
-            .expect("references are objects")
-            .insert("required".to_owned(), json!([node.class.clone()]));
-        branch
-    }));
-    Ok(json!({ "oneOf": branches }))
+    let branches = api
+        .classes
+        .keys()
+        .map(|name| {
+            let mut fields = Map::new();
+            fields.insert(node.class.clone(), json!({ "const": name }));
+            fields.insert(
+                node.properties.clone(),
+                reference(&format!("properties/{name}")),
+            );
+            add_child_fields(&mut fields, inferred.get(name));
+            json!({ "properties": fields })
+        })
+        .collect::<Vec<_>>();
+
+    let mut predicate = Map::new();
+    predicate.insert(node.class.clone(), json!({ "type": "string" }));
+    let mut fallback = Map::new();
+    fallback.insert(node.class.clone(), json!({ "type": "null" }));
+    fallback.insert(node.properties.clone(), properties);
+
+    let dispatch = json!({
+        "if": {
+            "properties": predicate,
+            "required": [node.class.clone()]
+        },
+        "then": { "oneOf": branches },
+        "else": { "properties": fallback }
+    });
+    object
+        .entry("allOf")
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut()
+        .context("Rojo ProjectNode allOf must be an array")?
+        .push(dispatch);
+    Ok(generic)
 }
 
 fn add_children(schema: &mut Value, children: Option<&BTreeSet<String>>) -> Result<()> {

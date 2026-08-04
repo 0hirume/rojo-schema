@@ -166,20 +166,36 @@ fn assert_project_dispatch(definitions: &serde_json::Map<String, Value>, coverag
         false
     );
 
-    let branches = definitions["node/Any"]["oneOf"].as_array().unwrap();
+    let any = &definitions["node/Any"];
+    assert_eq!(any["unevaluatedProperties"]["$ref"], "#/$defs/node~1Any");
+    assert!(any.get("additionalProperties").is_none());
+    let dispatch = any["allOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|rule| rule.get("if").is_some())
+        .unwrap();
+    assert_eq!(dispatch["if"]["properties"]["$className"]["type"], "string");
+    assert_eq!(dispatch["if"]["required"], json!(["$className"]));
+
+    let branches = dispatch["then"]["oneOf"].as_array().unwrap();
     assert_eq!(
         branches.len(),
-        usize::try_from(coverage["counts"]["classes"].as_u64().unwrap()).unwrap() + 1
+        usize::try_from(coverage["counts"]["classes"].as_u64().unwrap()).unwrap()
     );
-    assert_eq!(branches[0]["properties"]["$className"]["type"], "null");
+    assert!(branches.iter().all(|branch| {
+        branch["properties"]["$className"]["const"].is_string() && branch.get("$ref").is_none()
+    }));
+    assert!(branches.iter().any(|branch| {
+        branch["properties"]["$className"]["const"] == "Part"
+            && branch["properties"]["$properties"]["$ref"] == "#/$defs/properties~1Part"
+    }));
+    assert_eq!(dispatch["else"]["properties"]["$className"]["type"], "null");
     assert!(
-        branches[0]["properties"]["$properties"]["propertyNames"]["enum"]
+        dispatch["else"]["properties"]["$properties"]["propertyNames"]["enum"]
             .as_array()
             .is_some_and(|names| !names.is_empty())
     );
-    assert!(branches.iter().any(|branch| {
-        branch["$ref"] == "#/$defs/node~1Part" && branch["required"] == json!(["$className"])
-    }));
 }
 
 fn assert_deprecation_overrides(schema: &Value, coverage: &Value) {
@@ -395,8 +411,9 @@ fn draft_schema_and_projects_validate() {
     });
     assert_valid(&validator, &valid_inline, "inline positive fixture");
 
-    let valid_local = fixture("valid.project.json");
-    assert_valid(&validator, &valid_local, "local positive fixture");
+    for name in ["minimal.project.json", "valid.project.json"] {
+        assert_valid(&validator, &fixture(name), name);
+    }
     for relative in [
         "assets/project-templates/place/default.project.json",
         "test-projects/attributes/default.project.json",
