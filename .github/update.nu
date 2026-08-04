@@ -1,121 +1,126 @@
-def completed [program: string, arguments: list<string>] {
+def fail [message: string]: nothing -> error {
+    error make {
+        msg: $message
+        label: {
+            text: $message
+            span: (metadata $message).span
+        }
+    }
+}
+
+def completed [program: string, ...arguments: string]: nothing -> record {
     run-external $program ...$arguments | complete
 }
 
-def checked [program: string, arguments: list<string>] {
-    let result = (completed $program $arguments)
-    if not ($result.stdout | is-empty) {
-        print -n $result.stdout
+def checked [program: string, ...arguments: string]: nothing -> nothing {
+    run-external $program ...$arguments
+
+    let exit_code = $env.LAST_EXIT_CODE
+
+    if $exit_code != 0 {
+        fail $"($program) failed with exit code ($exit_code)"
     }
-    if not ($result.stderr | is-empty) {
-        print --stderr -n $result.stderr
-    }
+}
+
+def captured [program: string, ...arguments: string]: nothing -> string {
+    let result = (completed $program ...$arguments)
+
     if $result.exit_code != 0 {
-        error make { msg: $"($program) failed with exit code ($result.exit_code)" }
+        fail ($result.stderr | str trim)
     }
+
     $result.stdout | str trim
 }
 
-def clone-sources [] {
-    checked gh [
-        "repo"
-        "clone"
-        $env.ROJO_REPOSITORY
-        "sources/rojo"
-        "--"
-        "--depth"
-        "1"
-    ] | ignore
-    with-env { GIT_LFS_SKIP_SMUDGE: "1" } {
-        checked gh [
-            "repo"
-            "clone"
-            $env.DOCS_REPOSITORY
-            "sources/creator-docs"
-            "--"
-            "--depth"
-            "1"
-            "--filter=blob:none"
-            "--sparse"
-        ] | ignore
+def "main clone-sources" []: nothing -> nothing {
+    checked gh repo clone $env.ROJO_REPOSITORY sources/rojo "--" "--depth" "1"
+    with-env {GIT_LFS_SKIP_SMUDGE: "1"} {
+        checked gh repo clone $env.DOCS_REPOSITORY sources/creator-docs "--" "--depth" "1" "--filter=blob:none" "--sparse"
     }
-    checked git [
+    (checked
+        git
         "-C"
-        "sources/creator-docs"
-        "sparse-checkout"
-        "set"
-        "content/en-us/reference/engine"
-    ] | ignore
+        sources/creator-docs
+        sparse-checkout
+        set
+        content/en-us/reference/engine
+    )
 }
 
-def detect-changes [] {
-    let result = (completed git ["diff" "--quiet" "--" "dist"])
+def "main detect-changes" []: nothing -> nothing {
+    let result = (completed git diff "--quiet" "--" dist)
     let changed = if $result.exit_code == 0 {
         false
     } else if $result.exit_code == 1 {
         true
     } else {
-        error make { msg: ($result.stderr | str trim) }
+        fail ($result.stderr | str trim)
     }
-    ($"changed=($changed)" + (char newline)) | save --append $env.GITHUB_OUTPUT
+
+    try {
+        ($"changed=($changed)" + (char newline)) | save --append $env.GITHUB_OUTPUT
+    } catch {|error| fail $error.msg }
 }
 
-def open-pull-request [] {
-    checked gh ["auth" "setup-git"] | ignore
-    checked git ["config" "user.name" "github-actions[bot]"] | ignore
-    checked git [
-        "config"
-        "user.email"
+def "main open-pull-request" []: nothing -> nothing {
+    checked gh auth setup-git
+    checked git config user.name "github-actions[bot]"
+    (checked
+        git
+        config
+        user.email
         "41898282+github-actions[bot]@users.noreply.github.com"
-    ] | ignore
-    checked git ["switch" "-c" $env.UPDATE_BRANCH] | ignore
-    checked git ["add" "dist"] | ignore
-    checked git ["commit" "-m" "chore: update schemas"] | ignore
+    )
+    checked git switch "-c" $env.UPDATE_BRANCH
+    checked git add dist
+    checked git commit "-m" "chore: update schemas"
 
-    let remote = (completed git [
-        "ls-remote"
-        "--exit-code"
-        "--heads"
-        "origin"
-        $env.UPDATE_BRANCH
-    ])
+    let remote = (completed git ls-remote "--exit-code" "--heads" origin $env.UPDATE_BRANCH)
+
     if $remote.exit_code == 0 {
-        checked git [
-            "fetch"
-            "origin"
+        (checked
+            git
+            fetch
+            origin
             $"($env.UPDATE_BRANCH):refs/remotes/origin/($env.UPDATE_BRANCH)"
-        ] | ignore
+        )
     } else if $remote.exit_code != 2 {
-        error make { msg: ($remote.stderr | str trim) }
+        fail ($remote.stderr | str trim)
     }
 
-    checked git [
-        "push"
+    (checked
+        git
+        push
         "--force-with-lease"
-        "origin"
+        origin
         $"HEAD:refs/heads/($env.UPDATE_BRANCH)"
-    ] | ignore
+    )
 
-    let pulls = (checked gh [
-        "pr"
-        "list"
-        "--repo"
-        $env.REPOSITORY
-        "--head"
-        $env.UPDATE_BRANCH
-        "--base"
-        $env.DEFAULT_BRANCH
-        "--state"
-        "open"
-        "--json"
-        "number"
-        "--jq"
-        "length"
-    ])
+    let pulls = (
+        (captured
+            gh
+            pr
+            list
+            "--repo"
+            $env.REPOSITORY
+            "--head"
+            $env.UPDATE_BRANCH
+            "--base"
+            $env.DEFAULT_BRANCH
+            "--state"
+            open
+            "--json"
+            number
+            "--jq"
+            length
+        )
+    )
+
     if $pulls == "0" {
-        checked gh [
-            "pr"
-            "create"
+        (checked
+            gh
+            pr
+            create
             "--repo"
             $env.REPOSITORY
             "--head"
@@ -126,15 +131,6 @@ def open-pull-request [] {
             "chore: update schemas"
             "--body"
             "Regenerates the schema artifacts from the latest Rojo and Creator Docs default branches."
-        ] | ignore
-    }
-}
-
-def main [command: string] {
-    match $command {
-        "clone-sources" => { clone-sources }
-        "detect-changes" => { detect-changes }
-        "open-pull-request" => { open-pull-request }
-        _ => { error make { msg: $"unknown update command: ($command)" } }
+        )
     }
 }

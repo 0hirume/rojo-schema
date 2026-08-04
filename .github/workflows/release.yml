@@ -37,7 +37,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
-        run: source .github/release.nu; main "draft"
+        run: source .github/release.nu; main draft
 
   build:
     name: build ${{ matrix.target }}
@@ -92,7 +92,7 @@ jobs:
           ARCHIVE: ${{ matrix.archive }}
           SUFFIX: ${{ matrix.suffix }}
           TARGET: ${{ matrix.target }}
-        run: source .github/release.nu; main "package"
+        run: source .github/release.nu; main package
 
       - name: upload binary
         env:
@@ -101,7 +101,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
           TARGET: ${{ matrix.target }}
-        run: source .github/release.nu; main "upload"
+        run: source .github/release.nu; main upload
 
   publish:
     needs: build
@@ -125,4 +125,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
-        run: source .github/release.nu; main "publish"
+        run: source .github/release.nu; main publish
