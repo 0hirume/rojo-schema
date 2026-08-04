@@ -5,6 +5,7 @@ on:
     branches:
       - main
     paths:
+      - ".github/pages.html"
       - ".github/pages.nu"
       - ".github/workflows/pages.yml"
       - "src/**"
@@ -34,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
-      contents: read
+      contents: write # persist immutable schema snapshots.
     steps:
       - name: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,6 +75,13 @@ jobs:
           ROJO_SCHEMA_DOCS: ${{ github.workspace }}/sources/creator-docs
           ROJO_SCHEMA_ROJO: ${{ github.workspace }}/sources/rojo
         run: cargo +nightly test --locked
+
+      - name: store snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SNAPSHOT_BRANCH: snapshots
+        run: nu .github/pages.nu snapshot
 
       - name: stage site
         run: nu .github/pages.nu stage

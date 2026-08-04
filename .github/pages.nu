@@ -1,3 +1,9 @@
+const ARTIFACTS = [
+    rojo.schema.json
+    manifest.json
+    coverage.json
+]
+
 def fail [message: string]: nothing -> error {
     error make {
         msg: $message
@@ -20,6 +26,53 @@ def checked [program: string, ...arguments: string]: nothing -> nothing {
 
 def main []: nothing -> error {
     fail "subcommand required"
+}
+
+def artifacts []: nothing -> list<string> {
+    $ARTIFACTS | each {|name|
+        let path = [dist $name] | path join
+
+        if not ($path | path exists) {
+            fail $"missing artifact: ($path)"
+        }
+
+        $path
+    }
+}
+
+def store-path []: nothing -> string {
+    [$env.RUNNER_TEMP $"rojo-schema-snapshots-($env.GITHUB_RUN_ID)"] | path join
+}
+
+def clone-store [store: string]: nothing -> nothing {
+    checked gh auth setup-git
+
+    let remote = $"https://github.com/($env.REPOSITORY).git"
+    let branch = (
+        run-external git ls-remote "--exit-code" "--heads" $remote $env.SNAPSHOT_BRANCH
+        | complete
+    )
+
+    if $branch.exit_code == 0 {
+        (checked
+            gh
+            repo
+            clone
+            $env.REPOSITORY
+            $store
+            "--"
+            "--branch"
+            $env.SNAPSHOT_BRANCH
+            "--depth"
+            "1"
+            "--single-branch"
+        )
+    } else if $branch.exit_code == 2 {
+        checked git init "--initial-branch" $env.SNAPSHOT_BRANCH $store
+        checked git "-C" $store remote add origin $remote
+    } else {
+        fail $"checking snapshot branch failed with exit code ($branch.exit_code): ($branch.stderr | str trim)"
+    }
 }
 
 def "main clone-sources" []: nothing -> nothing {
@@ -46,12 +99,83 @@ def "main clone-sources" []: nothing -> nothing {
     )
 }
 
+def "main snapshot" []: nothing -> nothing {
+    try {
+        let store = store-path
+        clone-store $store
+
+        let schema = [dist rojo.schema.json] | path join
+        let hash = open --raw $schema | hash sha256
+        let index_path = [$store index.json] | path join
+        let index = if ($index_path | path exists) {
+            open $index_path
+        } else {
+            {
+                latest: null
+                snapshots: []
+            }
+        }
+        let previous = $index | get --optional latest.sha256
+
+        if $previous == $hash {
+            print $"schema unchanged: ($hash)"
+        } else {
+            let now = date now | date to-timezone "+0000"
+            let created_at = $now | format date %Y-%m-%dT%H:%M:%SZ
+            let stamp = $now | format date %Y-%m-%d-%H%M%SZ
+            let short = $hash | str substring 0..<12
+            let id = $"($stamp)-($short)"
+            let destination = [$store $id] | path join
+            mkdir $destination
+
+            for artifact in (artifacts) {
+                cp $artifact $destination
+            }
+
+            let entry = (
+                {}
+                | insert id $id
+                | insert createdAt $created_at
+                | insert sha256 $hash
+            )
+            let snapshots = $index | get --optional snapshots | default []
+            {
+                latest: $entry
+                snapshots: ($snapshots | prepend $entry)
+            } | to json --indent 2 | save --force $index_path
+
+            checked git "-C" $store config user.name "github-actions[bot]"
+            (checked
+                git
+                "-C"
+                $store
+                config
+                user.email
+                "41898282+github-actions[bot]@users.noreply.github.com"
+            )
+            checked git "-C" $store add "--all"
+            checked git "-C" $store commit "-m" $"snapshot: ($id)"
+            (checked
+                git
+                "-C"
+                $store
+                push
+                "--set-upstream"
+                origin
+                $env.SNAPSHOT_BRANCH
+            )
+        }
+    } catch {|error| fail $error.msg }
+}
+
 def "main stage" []: nothing -> nothing {
     try {
-        let files = (glob "dist/*")
+        let files = artifacts
+        let store = store-path
+        let index = [$store index.json] | path join
 
-        if ($files | is-empty) {
-            fail "dist is empty"
+        if not ($index | path exists) {
+            fail "snapshot index is missing"
         }
 
         if ("site" | path exists) {
@@ -59,9 +183,16 @@ def "main stage" []: nothing -> nothing {
         }
 
         mkdir site/latest
+        mkdir site/snapshots
 
         for file in $files {
-            cp --recursive $file site/latest
+            cp $file site/latest
         }
+
+        for file in (ls $store | get name) {
+            cp --recursive $file site/snapshots
+        }
+
+        cp .github/pages.html site/index.html
     } catch {|error| fail $error.msg }
 }

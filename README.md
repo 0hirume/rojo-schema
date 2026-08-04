@@ -82,7 +82,11 @@ Definitions use stable direct keys such as `value/Vector3`, `enum/Material`,
 completion for each class.
 
 The latest schema is generated daily from the current upstream sources and
-published automatically through GitHub Pages:
+published automatically through GitHub Pages. A new immutable snapshot is kept
+whenever the generated schema bytes change. The landing page lists the latest
+schema and every snapshot:
+
+<https://0hirume.github.io/rojo-schema/>
 
 ```json
 {
