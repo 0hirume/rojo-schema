@@ -550,6 +550,7 @@ fn annotate(
         object.insert("deprecated".to_owned(), json!(true));
     }
     if let Some(message) = deprecation_message.filter(|message| !message.is_empty()) {
+        object.insert("deprecationMessage".to_owned(), json!(message));
         object.insert("x-roblox-deprecation-message".to_owned(), json!(message));
     }
 }

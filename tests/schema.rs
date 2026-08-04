@@ -260,6 +260,10 @@ fn assert_property_metadata(schema: &Value) {
     assert!(property_definitions
         .iter()
         .any(|value| value["deprecated"] == true));
+    assert!(property_definitions.iter().any(|value| {
+        value["deprecationMessage"].is_string()
+            && value["deprecationMessage"] == value["x-roblox-deprecation-message"]
+    }));
     assert!(property_definitions
         .iter()
         .any(|value| value.get("x-rojo-alias-for").is_some()));
