@@ -52,7 +52,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GIT_LFS_SKIP_SMUDGE: "1"
-        run: source .github/pages.nu; main clone-sources
+        run: nu .github/pages.nu clone-sources
 
       - name: install rust nightly
         run: rustup toolchain install nightly --profile minimal
@@ -76,7 +76,7 @@ jobs:
         run: cargo +nightly test --locked
 
       - name: stage site
-        run: source .github/pages.nu; main stage
+        run: nu .github/pages.nu stage
 
       - name: upload pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
