@@ -37,10 +37,12 @@ jobs:
 
       - name: Clone sources
         env:
+          GIT_LFS_SKIP_SMUDGE: "1"
           GH_TOKEN: ${{ github.token }}
         run: |
           gh repo clone "$ROJO_REPOSITORY" sources/rojo -- --depth 1
-          gh repo clone "$DOCS_REPOSITORY" sources/creator-docs -- --depth 1
+          gh repo clone "$DOCS_REPOSITORY" sources/creator-docs -- --depth 1 --filter=blob:none --sparse
+          git -C sources/creator-docs sparse-checkout set content/en-us/reference/engine
 
       - name: Install Rust nightly
         run: rustup toolchain install nightly --profile minimal
