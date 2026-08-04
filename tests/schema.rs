@@ -17,15 +17,20 @@ fn rojo() -> PathBuf {
     config().rojo
 }
 
+fn source(name: &str) -> PathBuf {
+    env::var_os(name)
+        .unwrap_or_else(|| panic!("{name} is not set"))
+        .into()
+}
+
 fn config() -> Config {
-    let mut config = Config::default();
-    if let Some(path) = env::var_os("ROJO_SCHEMA_ROJO") {
-        config.rojo = path.into();
+    Config {
+        rojo: source("ROJO_SCHEMA_ROJO"),
+        docs: source("ROJO_SCHEMA_DOCS"),
+        output: root().join("dist/rojo.schema.json"),
+        manifest: root().join("dist/manifest.json"),
+        coverage: root().join("dist/coverage.json"),
     }
-    if let Some(path) = env::var_os("ROJO_SCHEMA_DOCS") {
-        config.docs = path.into();
-    }
-    config
 }
 
 fn artifacts() -> &'static Artifacts {

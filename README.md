@@ -30,18 +30,18 @@ The source checkouts are read-only inputs. Generation never writes into them.
 
 ## Usage
 
-From this directory, with the default sibling checkouts:
+Pass both source checkouts explicitly:
 
 ```console
-cargo run --locked -- generate
-cargo run --locked -- check
+cargo run --locked -- generate --rojo C:/path/to/rojo --docs C:/path/to/creator-docs
+cargo run --locked -- check --rojo C:/path/to/rojo --docs C:/path/to/creator-docs
 ```
 
 `generate` writes all three artifacts to the ignored `dist` directory. `check`
 generates twice in memory, rejects nondeterministic output, and fails if any
 generated artifact is missing or stale.
 
-Every path can be overridden for either command:
+The three output paths remain optional:
 
 ```console
 cargo run --locked -- generate --rojo C:/src/rojo --docs C:/src/creator-docs --output dist/rojo.schema.json --manifest dist/manifest.json --coverage dist/coverage.json
@@ -55,7 +55,13 @@ The reusable library exposes `Config`, `generate`, `write`, and `check`:
 ```rust
 use rojo_schema::{Config, generate, write};
 
-let config = Config::default();
+let config = Config {
+    rojo: std::env::var_os("ROJO_SCHEMA_ROJO").expect("ROJO_SCHEMA_ROJO is not set").into(),
+    docs: std::env::var_os("ROJO_SCHEMA_DOCS").expect("ROJO_SCHEMA_DOCS is not set").into(),
+    output: "dist/rojo.schema.json".into(),
+    manifest: "dist/manifest.json".into(),
+    coverage: "dist/coverage.json".into(),
+};
 let artifacts = generate(&config)?;
 write(&config, &artifacts)?;
 # Ok::<(), anyhow::Error>(())
@@ -90,9 +96,12 @@ published automatically through GitHub Pages:
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --locked
-cargo run --locked -- generate
-cargo run --locked -- check
+cargo run --locked -- generate --rojo C:/path/to/rojo --docs C:/path/to/creator-docs
+cargo run --locked -- check --rojo C:/path/to/rojo --docs C:/path/to/creator-docs
 ```
+
+Tests require `ROJO_SCHEMA_ROJO` and `ROJO_SCHEMA_DOCS` to point to those
+checkouts.
 
 Tests cover every source-traced Roblox variant, flattened inheritance,
 enum/middleware completion, optional paths, root fields, recursive nodes,

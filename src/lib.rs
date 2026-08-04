@@ -27,18 +27,6 @@ pub struct Config {
     pub coverage: PathBuf,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            rojo: PathBuf::from("../../../../src/rojo"),
-            docs: PathBuf::from("../../../../src/creator-docs"),
-            output: PathBuf::from("dist/rojo.schema.json"),
-            manifest: PathBuf::from("dist/manifest.json"),
-            coverage: PathBuf::from("dist/coverage.json"),
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Artifacts {
     pub schema: Vec<u8>,

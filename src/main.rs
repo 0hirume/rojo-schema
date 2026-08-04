@@ -22,11 +22,11 @@ enum Command {
 #[derive(Debug, Clone, Args)]
 struct Paths {
     /// Rojo source checkout.
-    #[arg(long, default_value = "../../../../src/rojo")]
+    #[arg(long)]
     rojo: PathBuf,
 
     /// Creator Docs checkout or its engine reference directory.
-    #[arg(long, default_value = "../../../../src/creator-docs")]
+    #[arg(long)]
     docs: PathBuf,
 
     /// Generated Draft 2020-12 schema.

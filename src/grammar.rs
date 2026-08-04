@@ -987,11 +987,14 @@ fn reference(key: &str) -> Value {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+
     use super::*;
 
     #[test]
     fn extracts_rojo_project_grammar() {
-        let grammar = load(Path::new("../../../../src/rojo/src")).unwrap();
+        let rojo = env::var_os("ROJO_SCHEMA_ROJO").expect("ROJO_SCHEMA_ROJO is not set");
+        let grammar = load(&PathBuf::from(rojo).join("src")).unwrap();
         assert_eq!(grammar.root["required"], json!(["tree"]));
         assert!(grammar.definitions.contains_key("rojo/ProjectNode"));
         assert_eq!(grammar.compact["Bool"], json!({ "type": "boolean" }));
