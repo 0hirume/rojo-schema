@@ -74,16 +74,13 @@ Definitions use stable direct keys such as `value/Vector3`, `enum/Material`,
 `serde/Vector3`. This keeps the large schema reusable while preserving editor
 completion for each class.
 
-The latest released schema is published through GitHub Pages:
+The latest schema on `main` is published automatically through GitHub Pages:
 
 ```json
 {
   "$schema": "https://0hirume.github.io/rojo-schema/latest/rojo.schema.json"
 }
 ```
-
-Replace `latest` with a release tag such as `v0.1.0` when a consumer needs
-immutable validation behavior.
 
 ## Validation
 
