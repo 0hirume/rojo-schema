@@ -1,4 +1,4 @@
-name: Update schemas
+name: update-schemas
 
 on:
   schedule:
