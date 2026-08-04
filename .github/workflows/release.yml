@@ -69,39 +69,31 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: gh repo clone "$REPOSITORY" . -- --branch "$RELEASE_TAG" --depth 1
 
+      - name: install nushell
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          cache: false
+          install_args: aqua:nushell/nushell@latest
+
       - name: install rust nightly
         env:
           TARGET: ${{ matrix.target }}
-        run: rustup toolchain install nightly --profile minimal --target "$TARGET"
+        shell: nu {0}
+        run: rustup toolchain install nightly --profile minimal --target $env.TARGET
 
       - name: build
         env:
           TARGET: ${{ matrix.target }}
-        run: cargo +nightly build --release --locked --target "$TARGET"
+        shell: nu {0}
+        run: cargo +nightly build --release --locked --target $env.TARGET
 
       - name: package
         env:
           ARCHIVE: ${{ matrix.archive }}
           SUFFIX: ${{ matrix.suffix }}
           TARGET: ${{ matrix.target }}
-        run: |
-          binary="target/$TARGET/release/rojo-schema$SUFFIX"
-          archive="rojo-schema-$TARGET.$ARCHIVE"
-          archive_path="$PWD/artifacts/$archive"
-          mkdir -p artifacts
-
-          if [[ "$ARCHIVE" == "zip" ]]; then
-            (cd "$(dirname "$binary")" && 7z a "$archive_path" "$(basename "$binary")")
-          else
-            tar -C "$(dirname "$binary")" -czf "$archive_path" "$(basename "$binary")"
-          fi
-
-          cd artifacts
-          if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum "$archive" >"$archive.sha256"
-          else
-            shasum -a 256 "$archive" >"$archive.sha256"
-          fi
+        shell: nu {0}
+        run: nu .github/release.nu package
 
       - name: upload binary
         env:
@@ -110,13 +102,8 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
           TARGET: ${{ matrix.target }}
-        run: |
-          archive="artifacts/rojo-schema-$TARGET.$ARCHIVE"
-          gh release upload "$RELEASE_TAG" \
-            "$archive" \
-            "$archive.sha256" \
-            --repo "$REPOSITORY" \
-            --clobber
+        shell: nu {0}
+        run: nu .github/release.nu upload
 
   publish:
     name: publish
@@ -153,44 +140,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
-        run: gh repo clone "$REPOSITORY" source -- --branch "$RELEASE_TAG" --depth 1
+        run: gh repo clone "$REPOSITORY" . -- --branch "$RELEASE_TAG" --depth 1
+
+      - name: install nushell
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          cache: false
+          install_args: aqua:nushell/nushell@latest
 
       - name: update pages branch
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
-        run: |
-          gh auth setup-git
-          repository_url="https://github.com/$REPOSITORY.git"
-
-          if git ls-remote --exit-code --heads "$repository_url" gh-pages >/dev/null 2>&1; then
-            gh repo clone "$REPOSITORY" site -- --branch gh-pages --single-branch --depth 1
-          else
-            git init site
-            git -C site switch --orphan gh-pages
-            git -C site remote add origin "$repository_url"
-          fi
-
-          version_path="site/$RELEASE_TAG"
-          if [[ -d "$version_path" ]]; then
-            diff -qr source/dist "$version_path"
-          else
-            mkdir -p "$version_path"
-            cp -R source/dist/. "$version_path/"
-          fi
-
-          rm -rf site/latest
-          mkdir -p site/latest
-          cp -R source/dist/. site/latest/
-          touch site/.nojekyll
-
-          git -C site add .
-          if git -C site diff --cached --quiet; then
-            exit 0
-          fi
-
-          git -C site config user.name "github-actions[bot]"
-          git -C site config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C site commit -m "Deploy $RELEASE_TAG"
-          git -C site push origin gh-pages
+        shell: nu {0}
+        run: nu .github/release.nu pages
