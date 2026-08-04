@@ -15,6 +15,12 @@ Add `$schema` at the top level of your project file:
 }
 ```
 
+> [!NOTE]
+> Recent VS Code versions require approval before downloading schemas from a
+> new domain. If the schema URL is reported as untrusted, use its quick fix and
+> choose **Trust URI** or **Trust Domain**. You can also add
+> `https://0hirume.github.io` to `json.schemaDownload.trustedDomains` manually.
+
 Any editor with JSON Schema support can then provide:
 
 - Rojo project and tree completion
