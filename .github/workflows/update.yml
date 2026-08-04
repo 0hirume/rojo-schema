@@ -2,8 +2,8 @@ name: update-schemas
 
 on:
   schedule:
-    - cron: "0 3 * * 1"
-  workflow_dispatch:
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
 
 concurrency:
   group: update-schemas
