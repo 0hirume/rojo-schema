@@ -1,11 +1,12 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
+    env, fs,
     path::PathBuf,
+    sync::OnceLock,
 };
 
 use jsonschema::{Draft, Validator};
-use rojo_schema::{generate, Config};
+use rojo_schema::{generate, Artifacts, Config};
 use serde_json::{json, Value};
 
 fn root() -> PathBuf {
@@ -13,11 +14,38 @@ fn root() -> PathBuf {
 }
 
 fn rojo() -> PathBuf {
-    root().join("../../../../src/rojo")
+    config().rojo
+}
+
+fn config() -> Config {
+    let mut config = Config::default();
+    if let Some(path) = env::var_os("ROJO_SCHEMA_ROJO") {
+        config.rojo = path.into();
+    }
+    if let Some(path) = env::var_os("ROJO_SCHEMA_DOCS") {
+        config.docs = path.into();
+    }
+    config
+}
+
+fn artifacts() -> &'static Artifacts {
+    static ARTIFACTS: OnceLock<Artifacts> = OnceLock::new();
+    ARTIFACTS.get_or_init(|| generate(&config()).unwrap())
 }
 
 fn artifact(name: &str) -> Value {
-    serde_json::from_slice(&fs::read(root().join("dist").join(name)).unwrap()).unwrap()
+    let artifacts = artifacts();
+    let bytes = match name {
+        "rojo.schema.json" => &artifacts.schema,
+        "manifest.json" => &artifacts.manifest,
+        "coverage.json" => &artifacts.coverage,
+        _ => panic!("unknown artifact: {name}"),
+    };
+    serde_json::from_slice(bytes).unwrap()
+}
+
+fn fixture(name: &str) -> Value {
+    serde_json::from_slice(&fs::read(root().join("tests/fixtures").join(name)).unwrap()).unwrap()
 }
 
 #[test]
@@ -268,7 +296,7 @@ fn draft_schema_and_projects_validate() {
     });
     assert_valid(&validator, &valid_inline, "inline positive fixture");
 
-    let valid_local = artifact("../tests/fixtures/valid.project.json");
+    let valid_local = fixture("valid.project.json");
     assert_valid(&validator, &valid_local, "local positive fixture");
     for relative in [
         "assets/project-templates/place/default.project.json",
@@ -283,7 +311,7 @@ fn draft_schema_and_projects_validate() {
         assert_valid(&validator, &value, relative);
     }
 
-    let invalid_local = artifact("../tests/fixtures/invalid.project.json");
+    let invalid_local = fixture("invalid.project.json");
     assert!(!validator.is_valid(&invalid_local));
     assert!(!validator.is_valid(&json!({ "name": "missing tree" })));
     assert!(!validator.is_valid(&json!({
@@ -293,24 +321,11 @@ fn draft_schema_and_projects_validate() {
 
 #[test]
 fn real_generation_is_byte_deterministic() {
-    let config = Config::default();
-    let first = generate(&config).unwrap();
-    let second = generate(&config).unwrap();
+    let first = artifacts();
+    let second = generate(&config()).unwrap();
     assert_eq!(first.schema, second.schema);
     assert_eq!(first.manifest, second.manifest);
     assert_eq!(first.coverage, second.coverage);
-    assert_eq!(
-        first.schema,
-        fs::read(root().join("dist/rojo.schema.json")).unwrap()
-    );
-    assert_eq!(
-        first.manifest,
-        fs::read(root().join("dist/manifest.json")).unwrap()
-    );
-    assert_eq!(
-        first.coverage,
-        fs::read(root().join("dist/coverage.json")).unwrap()
-    );
 }
 
 fn assert_valid(validator: &Validator, value: &Value, name: &str) {

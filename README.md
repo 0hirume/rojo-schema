@@ -37,8 +37,9 @@ cargo run --locked -- generate
 cargo run --locked -- check
 ```
 
-`generate` writes all three artifacts. `check` generates twice in memory,
-rejects nondeterministic output, and fails if any checked-in artifact differs.
+`generate` writes all three artifacts to the ignored `dist` directory. `check`
+generates twice in memory, rejects nondeterministic output, and fails if any
+generated artifact is missing or stale.
 
 Every path can be overridden for either command:
 
@@ -74,7 +75,8 @@ Definitions use stable direct keys such as `value/Vector3`, `enum/Material`,
 `serde/Vector3`. This keeps the large schema reusable while preserving editor
 completion for each class.
 
-The latest schema on `main` is published automatically through GitHub Pages:
+The latest schema is generated daily from the current upstream sources and
+published automatically through GitHub Pages:
 
 ```json
 {
