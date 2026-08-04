@@ -13,6 +13,7 @@ pub struct Api {
     pub coverage: Vec<CoverageItem>,
     pub diagnostics: Vec<Diagnostic>,
     pub docs_counts: BTreeMap<String, usize>,
+    pub deprecation_overrides: Vec<DeprecationOverride>,
 }
 
 #[derive(Debug, Clone)]
@@ -126,6 +127,14 @@ pub struct Diagnostic {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DeprecationOverride {
+    pub property: String,
+    pub upstream: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SourceInfo {
     pub repository: String,
     pub version: String,
@@ -172,6 +181,7 @@ pub struct Coverage {
     pub classifications: BTreeMap<String, usize>,
     pub docs: BTreeMap<String, usize>,
     pub variant_types: Vec<String>,
+    pub deprecation_overrides: Vec<DeprecationOverride>,
     pub diagnostics: Vec<Diagnostic>,
     pub items: Vec<CoverageItem>,
 }

@@ -104,6 +104,7 @@ fn schema_is_source_derived_and_class_aware() {
         .as_array()
         .unwrap()
         .contains(&technology["default"]));
+    assert_deprecation_overrides(&schema, &coverage);
     for prefix in [
         "rojo/",
         "serde/",
@@ -158,6 +159,42 @@ fn schema_is_source_derived_and_class_aware() {
         coverage["variantTypes"].as_array().unwrap().len(),
         usize::try_from(coverage["counts"]["variantTypes"].as_u64().unwrap()).unwrap()
     );
+}
+
+fn assert_deprecation_overrides(schema: &Value, coverage: &Value) {
+    let definitions = schema["$defs"].as_object().unwrap();
+    for property in [
+        "property/Lighting/Technology",
+        "property/TextChatService/ChatVersion",
+    ] {
+        let property = &definitions[property];
+        assert!(property.get("deprecated").is_none());
+        assert!(property["deprecationMessage"].is_string());
+        assert_eq!(
+            property["deprecationMessage"],
+            property["x-roblox-deprecation-message"]
+        );
+        assert!(property["description"]
+            .as_str()
+            .is_some_and(|description| description.contains("Compatibility note:")));
+    }
+    let deprecation_overrides = coverage["deprecationOverrides"].as_array().unwrap();
+    assert_eq!(deprecation_overrides.len(), 2);
+    assert_eq!(
+        deprecation_overrides
+            .iter()
+            .map(|deprecation| deprecation["property"].as_str().unwrap())
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from(["Lighting.Technology", "TextChatService.ChatVersion"])
+    );
+    assert!(deprecation_overrides.iter().all(|deprecation| {
+        deprecation["reason"]
+            .as_str()
+            .is_some_and(|text| !text.is_empty())
+            && deprecation["upstream"]
+                .as_str()
+                .is_some_and(|text| !text.is_empty())
+    }));
 }
 
 fn assert_model_schema(schema: &Value) {

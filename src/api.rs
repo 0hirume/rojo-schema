@@ -348,6 +348,7 @@ impl<'a> Builder<'a> {
             coverage: self.coverage,
             diagnostics: self.diagnostics,
             docs_counts,
+            deprecation_overrides: self.docs.deprecation_overrides.clone(),
         }
     }
 }

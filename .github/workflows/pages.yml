@@ -12,6 +12,7 @@ on:
       - "tests/**"
       - "Cargo.lock"
       - "Cargo.toml"
+      - "deprecations.toml"
       - "mise.toml"
   schedule:
     - cron: "0 3 * * *"

@@ -1,0 +1,5 @@
+[properties."Lighting.Technology"]
+reason = "Still defaults to Compatibility when excluded"
+
+[properties."TextChatService.ChatVersion"]
+reason = "Still defaults to LegacyChatService when excluded"

@@ -121,6 +121,7 @@ pub fn generate(config: &Config) -> Result<Artifacts> {
         classifications,
         docs: api.docs_counts,
         variant_types: api.variant_types,
+        deprecation_overrides: api.deprecation_overrides,
         diagnostics: api.diagnostics,
         items: api.coverage,
     };

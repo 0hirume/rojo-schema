@@ -5,7 +5,10 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
+use serde::Deserialize;
 use serde_json::Value;
+
+use crate::model::DeprecationOverride;
 
 #[derive(Debug, Clone, Default)]
 pub struct Catalog {
@@ -15,6 +18,7 @@ pub struct Catalog {
     pub datatypes: BTreeMap<String, Doc>,
     pub globals: BTreeMap<String, Doc>,
     pub libraries: BTreeMap<String, Doc>,
+    pub deprecation_overrides: Vec<DeprecationOverride>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -62,16 +66,30 @@ pub struct Member {
     pub thread_safety: Option<String>,
     pub serialization: Option<Value>,
     pub capabilities: Vec<String>,
+    pub deprecation_warning_suppressed: bool,
 }
 
 impl Member {
     pub fn deprecated(&self) -> bool {
-        self.tags.iter().any(|tag| tag == "Deprecated")
-            || self
-                .deprecation_message
-                .as_deref()
-                .is_some_and(|text| !text.is_empty())
+        !self.deprecation_warning_suppressed
+            && (self.tags.iter().any(|tag| tag == "Deprecated")
+                || self
+                    .deprecation_message
+                    .as_deref()
+                    .is_some_and(|text| !text.is_empty()))
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Deprecations {
+    properties: BTreeMap<String, Deprecation>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Deprecation {
+    reason: String,
 }
 
 pub fn engine_root(path: &Path) -> Result<PathBuf> {
@@ -111,8 +129,57 @@ pub fn load(path: &Path) -> Result<Catalog> {
     catalog.datatypes = load_dir(&root.join("datatypes"))?;
     catalog.globals = load_dir(&root.join("globals"))?;
     catalog.libraries = load_dir(&root.join("libraries"))?;
+    let deprecations = toml::from_str(include_str!("../deprecations.toml"))
+        .context("parsing embedded deprecations.toml")?;
+    catalog.deprecation_overrides = apply_deprecations(&mut catalog, &deprecations)?;
 
     Ok(catalog)
+}
+
+fn apply_deprecations(
+    catalog: &mut Catalog,
+    deprecations: &Deprecations,
+) -> Result<Vec<DeprecationOverride>> {
+    let mut applied = Vec::with_capacity(deprecations.properties.len());
+    for (property_name, deprecation) in &deprecations.properties {
+        let (class_name, _) = property_name
+            .split_once('.')
+            .with_context(|| format!("invalid deprecation property name: {property_name}"))?;
+        let class = catalog
+            .classes
+            .get_mut(class_name)
+            .with_context(|| format!("deprecation property class not found: {property_name}"))?;
+        let property = class
+            .members
+            .get_mut("properties")
+            .and_then(|properties| {
+                properties
+                    .iter_mut()
+                    .find(|property| property.name == *property_name)
+            })
+            .with_context(|| format!("deprecation property not found: {property_name}"))?;
+        let upstream = property
+            .deprecation_message
+            .as_deref()
+            .with_context(|| format!("deprecation message missing: {property_name}"))?;
+        let reason = deprecation.reason.trim();
+        if reason.is_empty() {
+            bail!("deprecation reason is empty: {property_name}");
+        }
+
+        let note = format!("Compatibility note: {reason}\n\nUpstream deprecation note: {upstream}");
+        property.description = Some(match property.description.take() {
+            Some(description) => format!("{description}\n\n{note}"),
+            None => note,
+        });
+        property.deprecation_warning_suppressed = true;
+        applied.push(DeprecationOverride {
+            property: property_name.clone(),
+            upstream: upstream.to_owned(),
+            reason: reason.to_owned(),
+        });
+    }
+    Ok(applied)
 }
 
 fn load_dir(path: &Path) -> Result<BTreeMap<String, Doc>> {
@@ -189,6 +256,7 @@ fn parse_member(value: &Value) -> Member {
         thread_safety: string(value, "thread_safety"),
         serialization: value.get("serialization").cloned().filter(not_null),
         capabilities: strings(value, "capabilities"),
+        deprecation_warning_suppressed: false,
     }
 }
 
@@ -218,4 +286,75 @@ fn strings(value: &Value, key: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn catalog(message: &str) -> Catalog {
+        let mut class = Doc {
+            name: "Lighting".to_owned(),
+            ..Doc::default()
+        };
+        class.members.insert(
+            "properties".to_owned(),
+            vec![Member {
+                name: "Lighting.Technology".to_owned(),
+                description: Some("Lighting mode.".to_owned()),
+                deprecation_message: Some(message.to_owned()),
+                ..Member::default()
+            }],
+        );
+        Catalog {
+            classes: BTreeMap::from([("Lighting".to_owned(), class)]),
+            ..Catalog::default()
+        }
+    }
+
+    fn deprecations() -> Deprecations {
+        Deprecations {
+            properties: BTreeMap::from([(
+                "Lighting.Technology".to_owned(),
+                Deprecation {
+                    reason: "Required for compatibility.".to_owned(),
+                },
+            )]),
+        }
+    }
+
+    #[test]
+    fn applies_deprecation_override() {
+        let mut catalog = catalog("Superseded by newer lighting controls.");
+        let applied = apply_deprecations(&mut catalog, &deprecations()).unwrap();
+        let property = catalog.classes["Lighting"]
+            .member("properties", "Technology")
+            .unwrap();
+
+        assert!(!property.deprecated());
+        assert!(property
+            .description
+            .as_deref()
+            .unwrap()
+            .contains("Upstream deprecation note"));
+        assert_eq!(applied[0].property, "Lighting.Technology");
+    }
+
+    #[test]
+    fn rejects_missing_deprecation_message() {
+        let mut catalog = catalog("Superseded.");
+        catalog
+            .classes
+            .get_mut("Lighting")
+            .unwrap()
+            .members
+            .get_mut("properties")
+            .unwrap()[0]
+            .deprecation_message = None;
+        let error = apply_deprecations(&mut catalog, &deprecations())
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("deprecation message missing"));
+    }
 }
