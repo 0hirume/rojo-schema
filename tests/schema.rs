@@ -127,24 +127,7 @@ fn schema_is_source_derived_and_class_aware() {
         );
     }
 
-    assert_eq!(
-        definitions["node/Part"]["properties"]["$className"]["const"],
-        "Part"
-    );
-    assert!(definitions["node/Part"].get("required").is_none());
-    assert_eq!(
-        definitions["node/DataModel"]["properties"]["Lighting"]["$ref"],
-        "#/$defs/node~1Lighting"
-    );
-    assert!(definitions["node/Any"].get("anyOf").is_none());
-    assert_eq!(
-        definitions["node/Any"]["unevaluatedProperties"]["$ref"],
-        "#/$defs/node~1Any"
-    );
-    assert_eq!(
-        definitions["node/Any"]["allOf"].as_array().unwrap().len(),
-        usize::try_from(coverage["counts"]["classes"].as_u64().unwrap()).unwrap() + 1
-    );
+    assert_project_dispatch(definitions, &coverage);
     assert_eq!(
         definitions["properties/Part"]["properties"]["Name"]["$ref"],
         "#/$defs/property~1Instance~1Name"
@@ -159,6 +142,44 @@ fn schema_is_source_derived_and_class_aware() {
         coverage["variantTypes"].as_array().unwrap().len(),
         usize::try_from(coverage["counts"]["variantTypes"].as_u64().unwrap()).unwrap()
     );
+}
+
+fn assert_project_dispatch(definitions: &serde_json::Map<String, Value>, coverage: &Value) {
+    assert_eq!(
+        definitions["node/Part"]["properties"]["$className"]["const"],
+        "Part"
+    );
+    assert!(definitions["node/Part"].get("required").is_none());
+    assert_eq!(
+        definitions["node/DataModel"]["properties"]["Lighting"]["$ref"],
+        "#/$defs/node~1Lighting"
+    );
+    assert_eq!(
+        definitions["node/Path"]["properties"]["$className"]["const"],
+        "Path"
+    );
+    assert!(definitions["properties/Path"]
+        .get("propertyNames")
+        .is_none());
+    assert_eq!(
+        definitions["properties/Path"]["additionalProperties"],
+        false
+    );
+
+    let branches = definitions["node/Any"]["oneOf"].as_array().unwrap();
+    assert_eq!(
+        branches.len(),
+        usize::try_from(coverage["counts"]["classes"].as_u64().unwrap()).unwrap() + 1
+    );
+    assert_eq!(branches[0]["properties"]["$className"]["type"], "null");
+    assert!(
+        branches[0]["properties"]["$properties"]["propertyNames"]["enum"]
+            .as_array()
+            .is_some_and(|names| !names.is_empty())
+    );
+    assert!(branches.iter().any(|branch| {
+        branch["$ref"] == "#/$defs/node~1Part" && branch["required"] == json!(["$className"])
+    }));
 }
 
 fn assert_deprecation_overrides(schema: &Value, coverage: &Value) {
@@ -197,6 +218,13 @@ fn assert_deprecation_overrides(schema: &Value, coverage: &Value) {
 
 fn assert_model_schema(schema: &Value) {
     assert_eq!(schema["$ref"], "#/$defs/model~1Any");
+    let any = &schema["$defs"]["model/Any"];
+    assert!(any.get("allOf").is_none());
+    assert!(any["oneOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|branch| branch["$ref"] == "#/$defs/model~1Part"));
     let part = &schema["$defs"]["model/Part"];
     assert_eq!(
         part["properties"]["properties"]["$ref"],
@@ -388,6 +416,25 @@ fn draft_schema_and_projects_validate() {
     assert!(!validator.is_valid(&json!({
         "tree": { "$className": "Part", "$path": 42 }
     })));
+    assert!(!validator.is_valid(&json!({
+        "tree": { "$className": "NotAClass" }
+    })));
+    assert!(!validator.is_valid(&json!({
+        "tree": {
+            "$className": "Part",
+            "$properties": { "Text": "cross-class" }
+        }
+    })));
+    assert_valid(
+        &validator,
+        &json!({
+            "tree": {
+                "$path": "assets",
+                "$properties": { "Anchored": true }
+            }
+        }),
+        "path-backed generic node",
+    );
 }
 
 #[test]
@@ -419,6 +466,21 @@ fn models_validate() {
     assert!(!validator.is_valid(&json!({
         "className": "Part",
         "properties": { "NotAProperty": true }
+    })));
+    assert_valid(
+        &validator,
+        &json!({
+            "ClassName": "Part",
+            "Properties": { "Anchored": true }
+        }),
+        "class-specific model properties",
+    );
+    assert!(!validator.is_valid(&json!({
+        "ClassName": "Part",
+        "Properties": { "Text": "cross-class" }
+    })));
+    assert!(!validator.is_valid(&json!({
+        "ClassName": "NotAClass"
     })));
 }
 
