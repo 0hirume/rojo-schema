@@ -18,6 +18,10 @@ def checked [program: string, ...arguments: string]: nothing -> nothing {
     }
 }
 
+def main []: nothing -> error {
+    fail "subcommand required"
+}
+
 def "main draft" []: nothing -> nothing {
     let release = (
         run-external gh release view $env.RELEASE_TAG "--repo" $env.REPOSITORY

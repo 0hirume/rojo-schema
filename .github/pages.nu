@@ -18,6 +18,10 @@ def checked [program: string, ...arguments: string]: nothing -> nothing {
     }
 }
 
+def main []: nothing -> error {
+    fail "subcommand required"
+}
+
 def "main clone-sources" []: nothing -> nothing {
     checked gh repo clone $env.ROJO_REPOSITORY sources/rojo "--" "--depth" "1"
     (checked
