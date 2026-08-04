@@ -118,7 +118,6 @@ def update-pages [] {
             "--"
             "--branch"
             "gh-pages"
-            "--single-branch"
             "--depth"
             "1"
         ] | ignore

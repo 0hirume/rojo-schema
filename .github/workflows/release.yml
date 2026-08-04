@@ -7,9 +7,12 @@ on:
 
 concurrency:
   group: release
-  cancel-in-progress: false
 
 permissions: {}
+
+defaults:
+  run:
+    shell: nu {0}
 
 jobs:
   draft:
@@ -27,15 +30,14 @@ jobs:
         uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
           cache: false
-          install_args: aqua:nushell/nushell@latest
+          install_args: aqua:nushell/nushell
 
       - name: create draft
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
-        shell: nu {0}
-        run: nu .github/release.nu draft
+        run: source .github/release.nu; main "draft"
 
   build:
     name: build ${{ matrix.target }}
@@ -73,18 +75,16 @@ jobs:
         uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
           cache: false
-          install_args: aqua:nushell/nushell@latest
+          install_args: aqua:nushell/nushell
 
       - name: install rust nightly
         env:
           TARGET: ${{ matrix.target }}
-        shell: nu {0}
         run: rustup toolchain install nightly --profile minimal --target $env.TARGET
 
       - name: build
         env:
           TARGET: ${{ matrix.target }}
-        shell: nu {0}
         run: cargo +nightly build --release --locked --target $env.TARGET
 
       - name: package
@@ -92,8 +92,7 @@ jobs:
           ARCHIVE: ${{ matrix.archive }}
           SUFFIX: ${{ matrix.suffix }}
           TARGET: ${{ matrix.target }}
-        shell: nu {0}
-        run: nu .github/release.nu package
+        run: source .github/release.nu; main "package"
 
       - name: upload binary
         env:
@@ -102,15 +101,10 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
           TARGET: ${{ matrix.target }}
-        shell: nu {0}
-        run: nu .github/release.nu upload
+        run: source .github/release.nu; main "upload"
 
   publish:
-    name: publish
-    needs:
-      - draft
-      - build
-      - pages
+    needs: pages
     runs-on: ubuntu-latest
     permissions:
       contents: write # publish the completed draft release.
@@ -124,21 +118,18 @@ jobs:
         uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
           cache: false
-          install_args: aqua:nushell/nushell@latest
+          install_args: aqua:nushell/nushell
 
       - name: publish release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
-        shell: nu {0}
-        run: nu .github/release.nu publish
+        run: source .github/release.nu; main "publish"
 
   pages:
     name: deploy schemas
-    needs:
-      - draft
-      - build
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write # update the github pages branch.
@@ -152,12 +143,11 @@ jobs:
         uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
           cache: false
-          install_args: aqua:nushell/nushell@latest
+          install_args: aqua:nushell/nushell
 
       - name: update pages branch
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
-        shell: nu {0}
-        run: nu .github/release.nu pages
+        run: source .github/release.nu; main "pages"

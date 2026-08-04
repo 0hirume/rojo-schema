@@ -7,9 +7,12 @@ on:
 
 concurrency:
   group: update-schemas
-  cancel-in-progress: false
 
 permissions: {}
+
+defaults:
+  run:
+    shell: nu {0}
 
 env:
   DOCS_REPOSITORY: Roblox/creator-docs
@@ -18,7 +21,6 @@ env:
 
 jobs:
   update:
-    name: update
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -34,27 +36,23 @@ jobs:
       - name: install nushell
         uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
-          install_args: aqua:nushell/nushell@latest
+          install_args: aqua:nushell/nushell
 
       - name: clone sources
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: nu {0}
-        run: nu .github/update.nu clone-sources
+        run: source .github/update.nu; main "clone-sources"
 
       - name: install rust nightly
-        shell: nu {0}
         run: rustup toolchain install nightly --profile minimal
 
       - name: generate schemas
-        shell: nu {0}
         run: >-
           cargo +nightly run --locked -- generate
           --rojo sources/rojo
           --docs sources/creator-docs
 
       - name: check schemas
-        shell: nu {0}
         run: >-
           cargo +nightly run --locked -- check
           --rojo sources/rojo
@@ -62,8 +60,7 @@ jobs:
 
       - name: detect changes
         id: changes
-        shell: nu {0}
-        run: nu .github/update.nu detect-changes
+        run: source .github/update.nu; main "detect-changes"
 
       - name: open pull request
         if: steps.changes.outputs.changed == 'true'
@@ -71,5 +68,4 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-        shell: nu {0}
-        run: nu .github/update.nu open-pull-request
+        run: source .github/update.nu; main "open-pull-request"
