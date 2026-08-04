@@ -6,8 +6,8 @@
     "creatorDocs": {
       "repository": "https://github.com/Roblox/creator-docs",
       "version": "0.732.0.7321040",
-      "sha256": "1cb9baee80b1144887e0a51f083256d944d0c49f52942520f81680e61ba24031",
-      "revision": "c855f3c1b274007b0b2739ed34d89325342157e0"
+      "sha256": "75ae10ae8ea5e2cf095a63a7260c92d55511cb151693ee72937f1b0a38360de0",
+      "revision": "7dfcee55a4ca126eb1b27db02a058cae349c6e1e"
     },
     "reflection": {
       "repository": "https://github.com/rojo-rbx/rbx-dom",
@@ -29,10 +29,10 @@
     "enumItems": 3480,
     "definitions": 6386,
     "variantTypes": 41,
-    "apiItems": 11592,
+    "apiItems": 11609,
     "conflicts": 1858,
     "unclassified": 0,
-    "schemaBytes": 9648976
+    "schemaBytes": 9650832
   },
   "limitations": [
     "The class produced by a filesystem path cannot be selected statically, so path-backed nodes use the reflected property-name set and Rojo's general unresolved-value grammar.",

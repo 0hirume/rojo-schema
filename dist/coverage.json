@@ -12,23 +12,23 @@
     "enumItems": 3480,
     "definitions": 6386,
     "variantTypes": 41,
-    "apiItems": 11592,
+    "apiItems": 11609,
     "conflicts": 1858,
     "unclassified": 0,
-    "schemaBytes": 9648976
+    "schemaBytes": 9650832
   },
   "classifications": {
-    "api-only": 43,
-    "matched": 5419,
+    "api-only": 59,
+    "matched": 5421,
     "metadata-conflict": 47,
-    "non-projectable": 2604,
-    "reflection-only": 1668,
+    "non-projectable": 2605,
+    "reflection-only": 1666,
     "type-conflict": 1811
   },
   "docs": {
     "classes": 651,
     "datatypes": 47,
-    "enums": 547,
+    "enums": 549,
     "globals": 2,
     "libraries": 11
   },
@@ -3830,7 +3830,7 @@
       "name": "GuiBase2d.AbsoluteRotation",
       "classification": "type-conflict",
       "reflection": "Float32",
-      "api": "float"
+      "api": "Rotation2D"
     },
     {
       "name": "GuiBase2d.AutoLocalize",
@@ -26127,6 +26127,14 @@
       "schemaRef": "#/$defs/enum~1PredictionStatus"
     },
     {
+      "source": "api",
+      "kind": "enum",
+      "name": "PredictiveStreamingMode",
+      "classification": "api-only",
+      "projectable": false,
+      "disposition": "not present in Rojo's pinned reflection database"
+    },
+    {
       "source": "reflection+api",
       "kind": "enum",
       "name": "PreferredInput",
@@ -27852,6 +27860,14 @@
       "projectable": true,
       "disposition": "enum-backed property values",
       "schemaRef": "#/$defs/enum~1VelocityConstraintMode"
+    },
+    {
+      "source": "api",
+      "kind": "enum",
+      "name": "VerifiedLevel",
+      "classification": "api-only",
+      "projectable": false,
+      "disposition": "not present in Rojo's pinned reflection database"
     },
     {
       "source": "reflection+api",
@@ -42097,6 +42113,30 @@
       "schemaRef": "#/$defs/enum~1KeyCode"
     },
     {
+      "source": "api",
+      "kind": "enum-item",
+      "name": "KeyCode.ButtonBack",
+      "classification": "api-only",
+      "projectable": false,
+      "disposition": "not present in Rojo's pinned reflection database"
+    },
+    {
+      "source": "api",
+      "kind": "enum-item",
+      "name": "KeyCode.ButtonCenter",
+      "classification": "api-only",
+      "projectable": false,
+      "disposition": "not present in Rojo's pinned reflection database"
+    },
+    {
+      "source": "api",
+      "kind": "enum-item",
+      "name": "KeyCode.ButtonDown",
+      "classification": "api-only",
+      "projectable": false,
+      "disposition": "not present in Rojo's pinned reflection database"
+    },
+    {
       "source": "reflection+api",
       "kind": "enum-item",
       "name": "KeyCode.ButtonL1",
@@ -42122,6 +42162,14 @@
       "projectable": true,
       "disposition": "enumerated property value",
       "schemaRef": "#/$defs/enum~1KeyCode"
+    },
+    {
+      "source": "api",
+      "kind": "enum-item",
+      "name": "KeyCode.ButtonLeft",
+      "classification": "api-only",
+      "projectable": false,
+      "disposition": "not present in Rojo's pinned reflection database"
     },
     {
       "source": "reflection+api",
@@ -42151,6 +42199,14 @@
       "schemaRef": "#/$defs/enum~1KeyCode"
     },
     {
+      "source": "api",
+      "kind": "enum-item",
+      "name": "KeyCode.ButtonRight",
+      "classification": "api-only",
+      "projectable": false,
+      "disposition": "not present in Rojo's pinned reflection database"
+    },
+    {
       "source": "reflection+api",
       "kind": "enum-item",
       "name": "KeyCode.ButtonSelect",
@@ -42167,6 +42223,14 @@
       "projectable": true,
       "disposition": "enumerated property value",
       "schemaRef": "#/$defs/enum~1KeyCode"
+    },
+    {
+      "source": "api",
+      "kind": "enum-item",
+      "name": "KeyCode.ButtonUp",
+      "classification": "api-only",
+      "projectable": false,
+      "disposition": "not present in Rojo's pinned reflection database"
     },
     {
       "source": "reflection+api",
@@ -43022,6 +43086,14 @@
       "projectable": true,
       "disposition": "enumerated property value",
       "schemaRef": "#/$defs/enum~1KeyCode"
+    },
+    {
+      "source": "api",
+      "kind": "enum-item",
+      "name": "KeyCode.None",
+      "classification": "api-only",
+      "projectable": false,
+      "disposition": "not present in Rojo's pinned reflection database"
     },
     {
       "source": "reflection+api",
@@ -48316,6 +48388,30 @@
       "schemaRef": "#/$defs/enum~1PredictionStatus"
     },
     {
+      "source": "api",
+      "kind": "enum-item",
+      "name": "PredictiveStreamingMode.Default",
+      "classification": "api-only",
+      "projectable": false,
+      "disposition": "not present in Rojo's pinned reflection database"
+    },
+    {
+      "source": "api",
+      "kind": "enum-item",
+      "name": "PredictiveStreamingMode.Disabled",
+      "classification": "api-only",
+      "projectable": false,
+      "disposition": "not present in Rojo's pinned reflection database"
+    },
+    {
+      "source": "api",
+      "kind": "enum-item",
+      "name": "PredictiveStreamingMode.Enabled",
+      "classification": "api-only",
+      "projectable": false,
+      "disposition": "not present in Rojo's pinned reflection database"
+    },
+    {
       "source": "reflection+api",
       "kind": "enum-item",
       "name": "PreferredInput.Gamepad",
@@ -48332,6 +48428,14 @@
       "projectable": true,
       "disposition": "enumerated property value",
       "schemaRef": "#/$defs/enum~1PreferredInput"
+    },
+    {
+      "source": "api",
+      "kind": "enum-item",
+      "name": "PreferredInput.MicroGamepad",
+      "classification": "api-only",
+      "projectable": false,
+      "disposition": "not present in Rojo's pinned reflection database"
     },
     {
       "source": "reflection+api",
@@ -58171,6 +58275,22 @@
       "projectable": true,
       "disposition": "enumerated property value",
       "schemaRef": "#/$defs/enum~1VelocityConstraintMode"
+    },
+    {
+      "source": "api",
+      "kind": "enum-item",
+      "name": "VerifiedLevel.High",
+      "classification": "api-only",
+      "projectable": false,
+      "disposition": "not present in Rojo's pinned reflection database"
+    },
+    {
+      "source": "api",
+      "kind": "enum-item",
+      "name": "VerifiedLevel.Low",
+      "classification": "api-only",
+      "projectable": false,
+      "disposition": "not present in Rojo's pinned reflection database"
     },
     {
       "source": "reflection+api",
@@ -76614,6 +76734,14 @@
       "source": "api",
       "kind": "method",
       "name": "WireframeHandleAdornment:Clear",
+      "classification": "non-projectable",
+      "projectable": false,
+      "disposition": "runtime API member, not a project property"
+    },
+    {
+      "source": "api",
+      "kind": "method",
+      "name": "Workspace:ApplyRecommendedStreamingSettings",
       "classification": "non-projectable",
       "projectable": false,
       "disposition": "runtime API member, not a project property"
@@ -111948,7 +112076,7 @@
       "source": "reflection+api",
       "kind": "property",
       "name": "Workspace.ImprovedAnimationConstraint",
-      "classification": "reflection-only",
+      "classification": "matched",
       "projectable": true,
       "disposition": "property-specific schema",
       "schemaRef": "#/$defs/property~1Workspace~1ImprovedAnimationConstraint"
@@ -111957,7 +112085,7 @@
       "source": "reflection+api",
       "kind": "property",
       "name": "Workspace.ImprovedPhysicsReplication",
-      "classification": "reflection-only",
+      "classification": "matched",
       "projectable": true,
       "disposition": "property-specific schema",
       "schemaRef": "#/$defs/property~1Workspace~1ImprovedPhysicsReplication"
@@ -112087,6 +112215,14 @@
       "projectable": true,
       "disposition": "property-specific schema",
       "schemaRef": "#/$defs/property~1Workspace~1PlayerScriptsUseInputActionSystemAlias"
+    },
+    {
+      "source": "api",
+      "kind": "property",
+      "name": "Workspace.PredictiveStreamingMode",
+      "classification": "api-only",
+      "projectable": false,
+      "disposition": "not present in Rojo's pinned reflection database"
     },
     {
       "source": "reflection+api",
