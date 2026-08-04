@@ -13,12 +13,12 @@ permissions: {}
 
 jobs:
   draft:
-    name: Create draft
+    name: create draft
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Create the draft release.
+      contents: write # create the draft release.
     steps:
-      - name: Create draft
+      - name: create draft
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
@@ -33,7 +33,7 @@ jobs:
           fi
 
   build:
-    name: Build ${{ matrix.target }}
+    name: build ${{ matrix.target }}
     needs: draft
     strategy:
       fail-fast: false
@@ -57,29 +57,29 @@ jobs:
             suffix: ""
     runs-on: ${{ matrix.runner }}
     permissions:
-      contents: write # Upload this target's release assets.
+      contents: write # upload this target's release assets.
     defaults:
       run:
         shell: bash
     steps:
-      - name: Clone tag
+      - name: clone tag
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
         run: gh repo clone "$REPOSITORY" . -- --branch "$RELEASE_TAG" --depth 1
 
-      - name: Install Rust nightly
+      - name: install rust nightly
         env:
           TARGET: ${{ matrix.target }}
         run: rustup toolchain install nightly --profile minimal --target "$TARGET"
 
-      - name: Build
+      - name: build
         env:
           TARGET: ${{ matrix.target }}
         run: cargo +nightly build --release --locked --target "$TARGET"
 
-      - name: Package
+      - name: package
         env:
           ARCHIVE: ${{ matrix.archive }}
           SUFFIX: ${{ matrix.suffix }}
@@ -103,7 +103,7 @@ jobs:
             shasum -a 256 "$archive" >"$archive.sha256"
           fi
 
-      - name: Upload binary
+      - name: upload binary
         env:
           ARCHIVE: ${{ matrix.archive }}
           GH_TOKEN: ${{ github.token }}
@@ -119,16 +119,16 @@ jobs:
             --clobber
 
   publish:
-    name: Publish
+    name: publish
     needs:
       - draft
       - build
       - pages
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Publish the completed draft release.
+      contents: write # publish the completed draft release.
     steps:
-      - name: Publish release
+      - name: publish release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
@@ -140,22 +140,22 @@ jobs:
           --latest
 
   pages:
-    name: Deploy schemas
+    name: deploy schemas
     needs:
       - draft
       - build
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Update the GitHub Pages branch.
+      contents: write # update the github pages branch.
     steps:
-      - name: Clone release tag
+      - name: clone release tag
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
         run: gh repo clone "$REPOSITORY" source -- --branch "$RELEASE_TAG" --depth 1
 
-      - name: Update Pages branch
+      - name: update pages branch
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
