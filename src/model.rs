@@ -142,12 +142,14 @@ pub struct Stats {
     pub flattened_properties: usize,
     pub enums: usize,
     pub enum_items: usize,
-    pub definitions: usize,
+    pub project_definitions: usize,
+    pub model_definitions: usize,
     pub variant_types: usize,
     pub api_items: usize,
     pub conflicts: usize,
     pub unclassified: usize,
-    pub schema_bytes: usize,
+    pub project_schema_bytes: usize,
+    pub model_schema_bytes: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -155,7 +157,8 @@ pub struct Stats {
 pub struct Manifest {
     pub generator: String,
     pub schema_draft: String,
-    pub schema_id: String,
+    pub project_schema_id: String,
+    pub model_schema_id: String,
     pub sources: BTreeMap<String, SourceInfo>,
     pub counts: Stats,
     pub limitations: Vec<String>,

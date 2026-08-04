@@ -27,7 +27,8 @@ fn config() -> Config {
     Config {
         rojo: source("ROJO_SCHEMA_ROJO"),
         docs: source("ROJO_SCHEMA_DOCS"),
-        output: root().join("dist/rojo.schema.json"),
+        project: root().join("dist/project.schema.json"),
+        model: root().join("dist/model.schema.json"),
         manifest: root().join("dist/manifest.json"),
         coverage: root().join("dist/coverage.json"),
     }
@@ -41,7 +42,8 @@ fn artifacts() -> &'static Artifacts {
 fn artifact(name: &str) -> Value {
     let artifacts = artifacts();
     let bytes = match name {
-        "rojo.schema.json" => &artifacts.schema,
+        "project.schema.json" => &artifacts.project,
+        "model.schema.json" => &artifacts.model,
         "manifest.json" => &artifacts.manifest,
         "coverage.json" => &artifacts.coverage,
         _ => panic!("unknown artifact: {name}"),
@@ -55,7 +57,8 @@ fn fixture(name: &str) -> Value {
 
 #[test]
 fn schema_is_source_derived_and_class_aware() {
-    let schema = artifact("rojo.schema.json");
+    let schema = artifact("project.schema.json");
+    let model = artifact("model.schema.json");
     let manifest = artifact("manifest.json");
     let coverage = artifact("coverage.json");
     assert_eq!(
@@ -65,10 +68,20 @@ fn schema_is_source_derived_and_class_aware() {
     assert_eq!(
         schema["$id"],
         format!(
-            "{}/latest/rojo.schema.json",
+            "{}/latest/project.schema.json",
             env!("CARGO_PKG_HOMEPAGE").trim_end_matches('/')
         )
     );
+    assert_eq!(
+        model["$id"],
+        format!(
+            "{}/latest/model.schema.json",
+            env!("CARGO_PKG_HOMEPAGE").trim_end_matches('/')
+        )
+    );
+    assert_eq!(manifest["projectSchemaId"], schema["$id"]);
+    assert_eq!(manifest["modelSchemaId"], model["$id"]);
+    assert_model_schema(&model);
     assert!(manifest["sources"]["rojo"]["version"].is_string());
     for source in manifest["sources"].as_object().unwrap().values() {
         assert!(source.get("path").is_none());
@@ -147,9 +160,23 @@ fn schema_is_source_derived_and_class_aware() {
     );
 }
 
+fn assert_model_schema(schema: &Value) {
+    assert_eq!(schema["$ref"], "#/$defs/model~1Any");
+    let part = &schema["$defs"]["model/Part"];
+    assert_eq!(
+        part["properties"]["properties"]["$ref"],
+        "#/$defs/properties~1Part"
+    );
+    assert_eq!(
+        part["properties"]["children"]["items"]["$ref"],
+        "#/$defs/model~1Any"
+    );
+    assert_eq!(part["properties"]["ClassName"]["const"], "Part");
+}
+
 #[test]
 fn every_coverage_item_is_classified_and_resolves() {
-    let schema = artifact("rojo.schema.json");
+    let schema = artifact("project.schema.json");
     let coverage = artifact("coverage.json");
     let items = coverage["items"].as_array().unwrap();
     let allowed = BTreeSet::from([
@@ -280,7 +307,7 @@ fn assert_property_metadata(schema: &Value) {
 
 #[test]
 fn draft_schema_and_projects_validate() {
-    let schema = artifact("rojo.schema.json");
+    let schema = artifact("project.schema.json");
     let validator = Validator::options()
         .with_draft(Draft::Draft202012)
         .build(&schema)
@@ -329,10 +356,43 @@ fn draft_schema_and_projects_validate() {
 }
 
 #[test]
+fn models_validate() {
+    let schema = artifact("model.schema.json");
+    let validator = Validator::options()
+        .with_draft(Draft::Draft202012)
+        .build(&schema)
+        .expect("generated model schema must compile as Draft 2020-12");
+
+    for relative in [
+        "test-projects/json_model/src/implicit.model.json",
+        "test-projects/json_model/src/children.model.json",
+        "rojo-test/syncback-tests/schema_roundtrip/input-project/src/model.model.json",
+        "rojo-test/serve-tests/ref_properties/ModelTarget.model.json",
+    ] {
+        let value: Value =
+            serde_json::from_slice(&fs::read(rojo().join(relative)).unwrap()).unwrap();
+        assert_valid(&validator, &value, relative);
+    }
+
+    let local = fixture("valid.model.json");
+    assert_valid(&validator, &local, "local model fixture");
+    assert!(!validator.is_valid(&json!({ "properties": {} })));
+    assert!(!validator.is_valid(&json!({
+        "className": "Part",
+        "ClassName": "Part"
+    })));
+    assert!(!validator.is_valid(&json!({
+        "className": "Part",
+        "properties": { "NotAProperty": true }
+    })));
+}
+
+#[test]
 fn real_generation_is_byte_deterministic() {
     let first = artifacts();
     let second = generate(&config()).unwrap();
-    assert_eq!(first.schema, second.schema);
+    assert_eq!(first.project, second.project);
+    assert_eq!(first.model, second.model);
     assert_eq!(first.manifest, second.manifest);
     assert_eq!(first.coverage, second.coverage);
 }

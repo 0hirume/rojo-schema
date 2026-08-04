@@ -1,5 +1,6 @@
 const ARTIFACTS = [
-    rojo.schema.json
+    project.schema.json
+    model.schema.json
     manifest.json
     coverage.json
 ]
@@ -104,8 +105,12 @@ def "main snapshot" []: nothing -> nothing {
         let store = store-path
         clone-store $store
 
-        let schema = [dist rojo.schema.json] | path join
-        let hash = open --raw $schema | hash sha256
+        let hash = (
+            artifacts
+            | each {|path| open --raw $path }
+            | str join (char nul)
+            | hash sha256
+        )
         let index_path = [$store index.json] | path join
         let index = if ($index_path | path exists) {
             open $index_path
@@ -137,6 +142,7 @@ def "main snapshot" []: nothing -> nothing {
                 | insert id $id
                 | insert createdAt $created_at
                 | insert sha256 $hash
+                | insert artifacts $ARTIFACTS
             )
             let snapshots = $index | get --optional snapshots | default []
             {

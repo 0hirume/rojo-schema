@@ -5,16 +5,18 @@ use serde_json::{json, Map, Value};
 
 use crate::{
     format::Formats,
-    grammar::{Grammar, Node},
+    grammar::{Field, Grammar, Model, Node},
     model::{Api, Class, Property, PropertyType},
 };
 
 pub const DRAFT: &str = "https://json-schema.org/draft/2020-12/schema";
 
 pub struct Output {
-    pub value: Value,
+    pub project: Value,
+    pub model: Value,
     pub flattened_properties: usize,
-    pub definitions: usize,
+    pub project_definitions: usize,
+    pub model_definitions: usize,
 }
 
 pub fn build(
@@ -23,10 +25,9 @@ pub fn build(
     grammar: &Grammar,
     formats: &Formats,
 ) -> Result<Output> {
-    let schema_id = format!(
-        "{}/latest/rojo.schema.json",
-        env!("CARGO_PKG_HOMEPAGE").trim_end_matches('/')
-    );
+    let homepage = env!("CARGO_PKG_HOMEPAGE").trim_end_matches('/');
+    let project_id = format!("{homepage}/latest/project.schema.json");
+    let model_id = format!("{homepage}/latest/model.schema.json");
     let mut definitions = formats.definitions.clone();
     definitions.extend(grammar.definitions.clone());
     link_external_formats(&mut definitions, formats);
@@ -34,15 +35,16 @@ pub fn build(
     definitions.extend(property_definitions(api, grammar, &formats.enum_variant));
     let (properties, flattened_properties) = properties_definitions(api, &grammar.node)?;
     definitions.extend(properties);
-    definitions.extend(node_definitions(api, grammar)?);
-    let definition_count = definitions.len();
 
-    let mut schema = grammar.root.clone();
-    let root = schema
+    let mut project_definitions = definitions.clone();
+    project_definitions.extend(node_definitions(api, grammar)?);
+    let project_definition_count = project_definitions.len();
+    let mut project = grammar.project.clone();
+    let root = project
         .as_object_mut()
         .context("Rojo Project must serialize as an object")?;
     root.insert("$schema".to_owned(), json!(DRAFT));
-    root.insert("$id".to_owned(), json!(schema_id));
+    root.insert("$id".to_owned(), json!(project_id));
     root.insert("title".to_owned(), json!("Rojo project"));
     root.insert(
         "description".to_owned(),
@@ -55,12 +57,29 @@ pub fn build(
         .and_then(Value::as_object_mut)
         .context("Rojo Project schema has no property map")?
         .insert(grammar.tree.clone(), reference("node/Any"));
-    root.insert("$defs".to_owned(), Value::Object(definitions));
+    root.insert("$defs".to_owned(), Value::Object(project_definitions));
+
+    let mut model_definitions = definitions;
+    model_definitions.extend(model_definitions_for(api, grammar)?);
+    let model_definition_count = model_definitions.len();
+    let model = json!({
+        "$schema": DRAFT,
+        "$id": model_id,
+        "title": "Rojo model",
+        "description": format!(
+            "Rojo {rojo_version} JSON model file targeting bundled Roblox reflection {} and Creator Docs Studio {}.",
+            api.reflection_version, api.studio_version
+        ),
+        "$ref": "#/$defs/model~1Any",
+        "$defs": model_definitions
+    });
 
     Ok(Output {
-        value: schema,
+        project,
+        model,
         flattened_properties,
-        definitions: definition_count,
+        project_definitions: project_definition_count,
+        model_definitions: model_definition_count,
     })
 }
 
@@ -192,6 +211,96 @@ fn node_definitions(api: &Api, grammar: &Grammar) -> Result<Map<String, Value>> 
     configure_any(&mut path, api, node, &inferred)?;
     definitions.insert("node/Any".to_owned(), path);
     Ok(definitions)
+}
+
+fn model_definitions_for(api: &Api, grammar: &Grammar) -> Result<Map<String, Value>> {
+    let model = &grammar.model;
+    let mut definitions = Map::new();
+
+    for (name, class) in &api.classes {
+        let mut schema = model.schema.clone();
+        configure_model(
+            &mut schema,
+            model,
+            Some(name),
+            &format!("properties/{name}"),
+        )?;
+        annotate(
+            &mut schema,
+            class.summary.as_deref(),
+            class.description.as_deref(),
+            class.deprecated,
+            class.deprecation_message.as_deref(),
+        );
+        definitions.insert(format!("model/{name}"), schema);
+    }
+
+    let mut any = model.schema.clone();
+    configure_model(&mut any, model, None, "properties/Path")?;
+    configure_model_any(&mut any, api, model)?;
+    definitions.insert("model/Any".to_owned(), any);
+    Ok(definitions)
+}
+
+fn configure_model(
+    schema: &mut Value,
+    model: &Model,
+    class: Option<&str>,
+    properties: &str,
+) -> Result<()> {
+    let fields = schema
+        .get_mut("properties")
+        .and_then(Value::as_object_mut)
+        .context("Rojo JsonModel schema has no property map")?;
+    if let Some(class) = class {
+        set_model_field(fields, &model.class, &json!({ "const": class }));
+    }
+    set_model_field(fields, &model.properties, &reference(properties));
+    set_model_field(
+        fields,
+        &model.children,
+        &json!({ "type": "array", "items": reference("model/Any") }),
+    );
+    Ok(())
+}
+
+fn configure_model_any(schema: &mut Value, api: &Api, model: &Model) -> Result<()> {
+    let object = schema
+        .as_object_mut()
+        .context("Rojo JsonModel must serialize as an object")?;
+    let rules = object
+        .entry("allOf")
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut()
+        .context("Rojo JsonModel allOf must be an array")?;
+
+    for name in api.classes.keys() {
+        let predicates = model_field_names(&model.class)
+            .map(|field| {
+                let mut properties = Map::new();
+                properties.insert(field.to_owned(), json!({ "const": name }));
+                json!({
+                    "properties": properties,
+                    "required": [field]
+                })
+            })
+            .collect::<Vec<_>>();
+        rules.push(json!({
+            "if": { "anyOf": predicates },
+            "then": reference(&format!("model/{name}"))
+        }));
+    }
+    Ok(())
+}
+
+fn set_model_field(fields: &mut Map<String, Value>, field: &Field, schema: &Value) {
+    for name in model_field_names(field) {
+        fields.insert(name.to_owned(), schema.clone());
+    }
+}
+
+fn model_field_names(field: &Field) -> impl Iterator<Item = &str> {
+    std::iter::once(field.name.as_str()).chain(field.aliases.iter().map(String::as_str))
 }
 
 fn inferred_children(api: &Api, grammar: &Grammar) -> Result<BTreeMap<String, BTreeSet<String>>> {

@@ -22,18 +22,21 @@ use crate::model::{Classification, Coverage, Manifest, SourceInfo, Stats};
 pub struct Config {
     pub rojo: PathBuf,
     pub docs: PathBuf,
-    pub output: PathBuf,
+    pub project: PathBuf,
+    pub model: PathBuf,
     pub manifest: PathBuf,
     pub coverage: PathBuf,
 }
 
 #[derive(Debug, Clone)]
 pub struct Artifacts {
-    pub schema: Vec<u8>,
+    pub project: Vec<u8>,
+    pub model: Vec<u8>,
     pub manifest: Vec<u8>,
     pub coverage: Vec<u8>,
     pub stats: Stats,
-    pub schema_id: String,
+    pub project_id: String,
+    pub model_id: String,
 }
 
 /// Compile all artifacts in memory from the configured source checkouts.
@@ -49,12 +52,17 @@ pub fn generate(config: &Config) -> Result<Artifacts> {
     let reflection_source = source::reflection_source(&config.rojo)?;
     let formats = format::values()?;
     let api = api::build(&docs, &formats.variants);
-    let schema = schema::build(&api, &rojo.source.version, &rojo.grammar, &formats)?;
-    let schema_id = schema.value["$id"]
+    let schemas = schema::build(&api, &rojo.source.version, &rojo.grammar, &formats)?;
+    let project_id = schemas.project["$id"]
         .as_str()
-        .context("generated schema is missing $id")?
+        .context("generated project schema is missing $id")?
         .to_owned();
-    let schema_bytes = pretty(&schema.value)?;
+    let model_id = schemas.model["$id"]
+        .as_str()
+        .context("generated model schema is missing $id")?
+        .to_owned();
+    let project_bytes = pretty(&schemas.project)?;
+    let model_bytes = pretty(&schemas.model)?;
 
     let property_count = api
         .classes
@@ -62,18 +70,20 @@ pub fn generate(config: &Config) -> Result<Artifacts> {
         .map(|class| class.properties.len())
         .sum();
     let enum_items = api.enums.values().map(|item| item.items.len()).sum();
-    let mut stats = Stats {
+    let stats = Stats {
         classes: api.classes.len(),
         properties: property_count,
-        flattened_properties: schema.flattened_properties,
+        flattened_properties: schemas.flattened_properties,
         enums: api.enums.len(),
         enum_items,
-        definitions: schema.definitions,
+        project_definitions: schemas.project_definitions,
+        model_definitions: schemas.model_definitions,
         variant_types: api.variant_types.len(),
         api_items: api.coverage.len(),
         conflicts: api.diagnostics.len(),
         unclassified: 0,
-        schema_bytes: schema_bytes.len(),
+        project_schema_bytes: project_bytes.len(),
+        model_schema_bytes: model_bytes.len(),
     };
 
     let sources = BTreeMap::from([
@@ -89,7 +99,8 @@ pub fn generate(config: &Config) -> Result<Artifacts> {
     let manifest = Manifest {
         generator: format!("rojo-schema {}", env!("CARGO_PKG_VERSION")),
         schema_draft: schema::DRAFT.to_owned(),
-        schema_id: schema_id.clone(),
+        project_schema_id: project_id.clone(),
+        model_schema_id: model_id.clone(),
         sources: sources.clone(),
         counts: stats.clone(),
         limitations,
@@ -116,14 +127,15 @@ pub fn generate(config: &Config) -> Result<Artifacts> {
 
     let manifest_bytes = pretty(&manifest)?;
     let coverage_bytes = pretty(&coverage)?;
-    stats.schema_bytes = schema_bytes.len();
 
     Ok(Artifacts {
-        schema: schema_bytes,
+        project: project_bytes,
+        model: model_bytes,
         manifest: manifest_bytes,
         coverage: coverage_bytes,
         stats,
-        schema_id,
+        project_id,
+        model_id,
     })
 }
 
@@ -133,7 +145,8 @@ pub fn generate(config: &Config) -> Result<Artifacts> {
 ///
 /// Returns an error when an output directory or file cannot be created.
 pub fn write(config: &Config, artifacts: &Artifacts) -> Result<()> {
-    write_file(&config.output, &artifacts.schema)?;
+    write_file(&config.project, &artifacts.project)?;
+    write_file(&config.model, &artifacts.model)?;
     write_file(&config.manifest, &artifacts.manifest)?;
     write_file(&config.coverage, &artifacts.coverage)?;
     Ok(())
@@ -148,7 +161,8 @@ pub fn write(config: &Config, artifacts: &Artifacts) -> Result<()> {
 pub fn check(config: &Config) -> Result<Artifacts> {
     let first = generate(config)?;
     let second = generate(config)?;
-    if first.schema != second.schema
+    if first.project != second.project
+        || first.model != second.model
         || first.manifest != second.manifest
         || first.coverage != second.coverage
     {
@@ -156,7 +170,8 @@ pub fn check(config: &Config) -> Result<Artifacts> {
     }
 
     let expected = [
-        (&config.output, &first.schema, "schema"),
+        (&config.project, &first.project, "project schema"),
+        (&config.model, &first.model, "model schema"),
         (&config.manifest, &first.manifest, "manifest"),
         (&config.coverage, &first.coverage, "coverage"),
     ];

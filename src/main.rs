@@ -29,9 +29,13 @@ struct Paths {
     #[arg(long)]
     docs: PathBuf,
 
-    /// Generated Draft 2020-12 schema.
-    #[arg(long, default_value = "dist/rojo.schema.json")]
-    output: PathBuf,
+    /// Generated Draft 2020-12 project schema.
+    #[arg(long, default_value = "dist/project.schema.json")]
+    project: PathBuf,
+
+    /// Generated Draft 2020-12 model schema.
+    #[arg(long, default_value = "dist/model.schema.json")]
+    model: PathBuf,
 
     /// Generated source/version manifest.
     #[arg(long, default_value = "dist/manifest.json")]
@@ -47,7 +51,8 @@ impl From<Paths> for Config {
         Self {
             rojo: paths.rojo,
             docs: paths.docs,
-            output: paths.output,
+            project: paths.project,
+            model: paths.model,
             manifest: paths.manifest,
             coverage: paths.coverage,
         }
@@ -68,14 +73,17 @@ fn main() -> Result<()> {
     };
 
     eprintln!(
-        "{verb} {} in {:.2?}: {} bytes, {} classes, {} flattened properties, {} enums, {} definitions, {} conflicts, {} unclassified",
-        artifacts.schema_id,
+        "{verb} {} and {} in {:.2?}: {} project bytes, {} model bytes, {} classes, {} flattened properties, {} enums, {}/{} definitions, {} conflicts, {} unclassified",
+        artifacts.project_id,
+        artifacts.model_id,
         started.elapsed(),
-        artifacts.stats.schema_bytes,
+        artifacts.stats.project_schema_bytes,
+        artifacts.stats.model_schema_bytes,
         artifacts.stats.classes,
         artifacts.stats.flattened_properties,
         artifacts.stats.enums,
-        artifacts.stats.definitions,
+        artifacts.stats.project_definitions,
+        artifacts.stats.model_definitions,
         artifacts.stats.conflicts,
         artifacts.stats.unclassified,
     );

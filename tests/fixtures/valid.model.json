@@ -1,0 +1,18 @@
+{
+  "$schema": "https://0hirume.github.io/rojo-schema/latest/model.schema.json",
+  "className": "Part",
+  "id": "root-part",
+  "properties": {
+    "Anchored": true,
+    "Position": [1, 2, 3]
+  },
+  "attributes": {
+    "BuildTag": "schema-test"
+  },
+  "children": [
+    {
+      "name": "Attachment",
+      "className": "Attachment"
+    }
+  ]
+}

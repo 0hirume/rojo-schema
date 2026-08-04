@@ -1,17 +1,29 @@
 # rojo-schema
 
-JSON Schema completion, documentation, and validation for Rojo
-`.project.json` and `.project.jsonc` files.
+JSON Schema completion, documentation, and validation for Rojo project and JSON
+model files.
 
 ## Use it
 
-Add `$schema` at the top level of your project file:
+Add `$schema` at the top level of a `.project.json` or `.project.jsonc` file:
 
 ```json
 {
-  "$schema": "https://0hirume.github.io/rojo-schema/latest/rojo.schema.json",
+  "$schema": "https://0hirume.github.io/rojo-schema/latest/project.schema.json",
   "name": "MyProject",
   "tree": {}
+}
+```
+
+`.model.json` and `.model.jsonc` files use the model schema:
+
+```json
+{
+  "$schema": "https://0hirume.github.io/rojo-schema/latest/model.schema.json",
+  "className": "Part",
+  "properties": {
+    "Anchored": true
+  }
 }
 ```
 
@@ -23,20 +35,20 @@ Add `$schema` at the top level of your project file:
 
 Any editor with JSON Schema support can then provide:
 
-- Rojo project and tree completion
+- Rojo project, tree, and JSON model completion
 - Roblox class, property, enum, and value completion
 - Property descriptions and deprecation messages
-- Validation for Rojo's project format
+- Validation for Rojo's project and JSON model formats
 
-The latest schema updates automatically when its upstream sources change. The
-[schema page](https://0hirume.github.io/rojo-schema/) links to the current
-schema, its manifest and coverage report, and every immutable snapshot.
+The latest schemas update automatically when their upstream sources change.
+The [schema page](https://0hirume.github.io/rojo-schema/) links to the current
+schemas, their manifest and coverage report, and every immutable snapshot.
 
 ## How it is generated
 
 `rojo-schema` combines three sources without modifying them:
 
-- Rojo defines the project format and tree grammar.
+- Rojo defines the project, tree, and JSON model grammars.
 - Rojo's reflection database defines Roblox classes, properties, types, enums,
   defaults, and serialization metadata.
 - Roblox Creator Docs provides descriptions, deprecations, security, thread
@@ -55,10 +67,10 @@ cargo run --locked -- generate --rojo C:/path/to/rojo --docs C:/path/to/creator-
 cargo run --locked -- check --rojo C:/path/to/rojo --docs C:/path/to/creator-docs
 ```
 
-`generate` writes the schema, manifest, and coverage report to the ignored
-`dist` directory. `check` verifies that generation is deterministic and the
-existing artifacts are current. `--docs` also accepts the Creator Docs
-`content/en-us/reference/engine` directory.
+`generate` writes the project schema, model schema, manifest, and coverage
+report to the ignored `dist` directory. `check` verifies that generation is
+deterministic and the existing artifacts are current. `--docs` also accepts the
+Creator Docs `content/en-us/reference/engine` directory.
 
 Tests use `ROJO_SCHEMA_ROJO` and `ROJO_SCHEMA_DOCS` for the same source paths:
 

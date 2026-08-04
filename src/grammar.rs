@@ -16,15 +16,17 @@ use syn::{
 
 const PROJECT: &str = "Project";
 const NODE: &str = "ProjectNode";
+const MODEL: &str = "JsonModel";
 
 #[derive(Debug, Clone)]
 pub struct Grammar {
-    pub root: Value,
+    pub project: Value,
     pub definitions: Map<String, Value>,
     pub compact: BTreeMap<String, Value>,
     pub inferred: BTreeMap<String, Inference>,
     pub tree: String,
     pub node: Node,
+    pub model: Model,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -39,6 +41,20 @@ pub struct Node {
     pub class: String,
     pub properties: String,
     pub value: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Model {
+    pub schema: Value,
+    pub class: Field,
+    pub properties: Field,
+    pub children: Field,
+}
+
+#[derive(Debug, Clone)]
+pub struct Field {
+    pub name: String,
+    pub aliases: Vec<String>,
 }
 
 #[derive(Default)]
@@ -68,19 +84,27 @@ pub fn load(root: &Path) -> Result<Grammar> {
     let tree = project_tree(&definitions)?;
     let roles = node_roles(&definitions)?;
     let mut builder = Builder::new(&definitions);
-    let root_ref = builder.named(PROJECT)?;
-    let root_key = definition_key(PROJECT);
-    let root = builder.output.get(&root_key).cloned().unwrap_or(root_ref);
+    let project_ref = builder.named(PROJECT)?;
+    let project_key = definition_key(PROJECT);
+    let project = builder
+        .output
+        .get(&project_key)
+        .cloned()
+        .unwrap_or(project_ref);
     let node_key = definition_key(NODE);
     let schema = builder
         .output
         .get(&node_key)
         .cloned()
         .context("ProjectNode was not reachable from Project")?;
+    let model_ref = builder.named(MODEL)?;
+    let model_key = definition_key(MODEL);
+    let model_schema = builder.output.get(&model_key).cloned().unwrap_or(model_ref);
+    let model = model_roles(&definitions)?;
     let compact = compact_schemas(&definitions, &mut builder)?;
 
     Ok(Grammar {
-        root,
+        project,
         definitions: builder.output,
         compact,
         inferred: definitions.inferred,
@@ -90,6 +114,12 @@ pub fn load(root: &Path) -> Result<Grammar> {
             class: roles.class,
             properties: roles.properties,
             value: roles.value,
+        },
+        model: Model {
+            schema: model_schema,
+            class: model.class,
+            properties: model.properties,
+            children: model.children,
         },
     })
 }
@@ -436,6 +466,38 @@ fn node_roles(definitions: &Definitions) -> Result<Roles> {
     })
 }
 
+struct ModelRoles {
+    class: Field,
+    properties: Field,
+    children: Field,
+}
+
+fn model_roles(definitions: &Definitions) -> Result<ModelRoles> {
+    let model = definitions
+        .structs
+        .get(MODEL)
+        .context("Rojo JsonModel struct was not found")?;
+    let attributes = ContainerAttrs::parse(&model.attrs)?;
+    Ok(ModelRoles {
+        class: model_field(model, "class_name", &attributes)?,
+        properties: model_field(model, "properties", &attributes)?,
+        children: model_field(model, "children", &attributes)?,
+    })
+}
+
+fn model_field(model: &ItemStruct, name: &str, attributes: &ContainerAttrs) -> Result<Field> {
+    let field = model
+        .fields
+        .iter()
+        .find(|field| field.ident.as_ref().is_some_and(|ident| ident == name))
+        .with_context(|| format!("Rojo JsonModel field {name} was not found"))?;
+    let field_attributes = FieldAttrs::parse(&field.attrs)?;
+    Ok(Field {
+        name: field_name(field, attributes.rename_all.as_deref())?,
+        aliases: field_attributes.aliases,
+    })
+}
+
 fn compact_schemas(
     definitions: &Definitions,
     builder: &mut Builder<'_>,
@@ -596,6 +658,7 @@ impl<'a> Builder<'a> {
                     Value::Object(Map::new())
                 };
                 let mut flattened = Vec::new();
+                let mut alias_rules = Vec::new();
                 for field in &fields.named {
                     let field_attributes = FieldAttrs::parse(&field.attrs)?;
                     if field_attributes.skip {
@@ -612,10 +675,32 @@ impl<'a> Builder<'a> {
                     let name = field_name(field, attributes.rename_all.as_deref())?;
                     let mut value = self.ty(&field.ty)?;
                     describe(&mut value, &field.attrs);
-                    if !is_option(&field.ty) && !field_attributes.default {
-                        required.push(name.clone());
+                    if field_attributes.aliases.is_empty() {
+                        if !is_option(&field.ty) && !field_attributes.default {
+                            required.push(name.clone());
+                        }
+                    } else if !is_option(&field.ty) && !field_attributes.default {
+                        let options = std::iter::once(&name)
+                            .chain(&field_attributes.aliases)
+                            .map(|name| json!({ "required": [name] }))
+                            .collect::<Vec<_>>();
+                        alias_rules.push(json!({ "oneOf": options }));
+                    } else {
+                        let names = std::iter::once(&name)
+                            .chain(&field_attributes.aliases)
+                            .collect::<Vec<_>>();
+                        for (index, left) in names.iter().enumerate() {
+                            for right in &names[index + 1..] {
+                                alias_rules.push(json!({
+                                    "not": { "required": [left, right] }
+                                }));
+                            }
+                        }
                     }
-                    properties.insert(name, value);
+                    properties.insert(name, value.clone());
+                    for alias in field_attributes.aliases {
+                        properties.insert(alias, value.clone());
+                    }
                 }
                 let mut object = json!({
                     "type": "object",
@@ -624,6 +709,9 @@ impl<'a> Builder<'a> {
                 });
                 if !required.is_empty() {
                     object["required"] = json!(required);
+                }
+                if !alias_rules.is_empty() {
+                    object["allOf"] = Value::Array(alias_rules);
                 }
                 if flattened.is_empty() {
                     object
@@ -762,6 +850,7 @@ impl ContainerAttrs {
 #[derive(Default)]
 struct FieldAttrs {
     rename: Option<String>,
+    aliases: Vec<String>,
     default: bool,
     flatten: bool,
     skip: bool,
@@ -777,6 +866,10 @@ impl FieldAttrs {
             attribute.parse_nested_meta(|meta| {
                 if meta.path.is_ident("rename") {
                     output.rename = Some(meta.value()?.parse::<syn::LitStr>()?.value());
+                } else if meta.path.is_ident("alias") {
+                    output
+                        .aliases
+                        .push(meta.value()?.parse::<syn::LitStr>()?.value());
                 } else if meta.path.is_ident("default") {
                     output.default = true;
                     discard_meta(&meta)?;
@@ -992,11 +1085,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extracts_rojo_project_grammar() {
+    fn extracts_rojo_grammars() {
         let rojo = env::var_os("ROJO_SCHEMA_ROJO").expect("ROJO_SCHEMA_ROJO is not set");
         let grammar = load(&PathBuf::from(rojo).join("src")).unwrap();
-        assert_eq!(grammar.root["required"], json!(["tree"]));
+        assert_eq!(grammar.project["required"], json!(["tree"]));
         assert!(grammar.definitions.contains_key("rojo/ProjectNode"));
+        assert!(grammar.definitions.contains_key("rojo/JsonModel"));
+        assert_eq!(grammar.model.class.name, "className");
+        assert_eq!(grammar.model.class.aliases, ["ClassName"]);
+        assert!(grammar.model.schema["properties"]["properties"].is_object());
+        assert!(grammar.model.schema["properties"]["Properties"].is_object());
         assert_eq!(grammar.compact["Bool"], json!({ "type": "boolean" }));
         assert_eq!(grammar.compact["CFrame"]["type"], "array");
         assert!(!grammar.compact.contains_key("Ref"));
