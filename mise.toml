@@ -5,3 +5,4 @@
 "npm:@actions/languageserver" = "latest"
 "npm:oxfmt" = "latest"
 "npm:yaml-language-server" = "latest"
+"aqua:rhysd/actionlint" = "latest"
