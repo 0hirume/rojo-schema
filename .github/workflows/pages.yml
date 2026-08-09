@@ -7,19 +7,16 @@ on:
     paths:
       - ".github/pages.html"
       - ".github/pages.nu"
-      - ".github/workflows/pages.yml"
-      - "src/**"
-      - "tests/**"
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - "deprecations.toml"
-      - "mise.toml"
   schedule:
     - cron: "0 3 * * *"
+  release:
+    types:
+      - published
   workflow_dispatch: {}
 
 concurrency:
   group: pages
+  cancel-in-progress: true
 
 permissions: {}
 
@@ -56,26 +53,18 @@ jobs:
           GIT_LFS_SKIP_SMUDGE: "1"
         run: nu .github/pages.nu clone-sources
 
-      - name: install rust nightly
-        run: rustup toolchain install nightly --profile minimal
+      - name: download generator
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || '' }}
+          REPOSITORY: ${{ github.repository }}
+        run: nu .github/pages.nu download-generator
 
       - name: generate schemas
-        run: >-
-          cargo +nightly run --locked -- generate
-          --rojo sources/rojo
-          --docs sources/creator-docs
+        run: nu .github/pages.nu generate
 
       - name: check schemas
-        run: >-
-          cargo +nightly run --locked -- check
-          --rojo sources/rojo
-          --docs sources/creator-docs
-
-      - name: test
-        env:
-          ROJO_SCHEMA_DOCS: ${{ github.workspace }}/sources/creator-docs
-          ROJO_SCHEMA_ROJO: ${{ github.workspace }}/sources/rojo
-        run: cargo +nightly test --locked
+        run: nu .github/pages.nu check
 
       - name: store snapshot
         env:

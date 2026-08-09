@@ -15,8 +15,42 @@ defaults:
     shell: nu {0}
 
 jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: install nushell
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          cache: false
+          install_args: aqua:nushell/nushell
+
+      - name: clone sources
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_LFS_SKIP_SMUDGE: "1"
+        run: nu .github/pages.nu clone-sources
+
+      - name: install rust nightly
+        run: rustup toolchain install nightly --profile minimal
+
+      - name: test
+        env:
+          ROJO_SCHEMA_DOCS: ${{ github.workspace }}/sources/creator-docs
+          ROJO_SCHEMA_ROJO: ${{ github.workspace }}/sources/rojo
+        run: cargo +nightly test --locked
+
   draft:
     name: create draft
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the draft release.
@@ -108,6 +142,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # publish the completed draft release.
+      actions: write # trigger the Pages refresh after publishing.
     steps:
       - name: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -126,3 +161,10 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
         run: nu .github/release.nu publish
+
+      - name: trigger Pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REPOSITORY: ${{ github.repository }}
+        run: gh workflow run pages.yml --repo $env.REPOSITORY --ref $env.DEFAULT_BRANCH

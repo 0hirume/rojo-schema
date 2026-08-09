@@ -100,6 +100,31 @@ def "main clone-sources" []: nothing -> nothing {
     )
 }
 
+def "main download-generator" []: nothing -> nothing {
+    let archive = "rojo-schema-x86_64-unknown-linux-gnu.tar.gz"
+    let checksum = $"($archive).sha256"
+    let tag = $env | get --optional RELEASE_TAG
+
+    if ($tag == null) or ($tag == "") {
+        checked gh release download "--repo" $env.REPOSITORY "--pattern" $"($archive)*"
+    } else {
+        checked gh release download $tag "--repo" $env.REPOSITORY "--pattern" $"($archive)*"
+    }
+
+    checked sha256sum "--check" $checksum
+    mkdir bin
+    checked tar "-xzf" $archive "-C" bin
+    checked chmod "+x" "bin/rojo-schema"
+}
+
+def "main generate" []: nothing -> nothing {
+    checked "bin/rojo-schema" generate "--rojo" sources/rojo "--docs" sources/creator-docs
+}
+
+def "main check" []: nothing -> nothing {
+    checked "bin/rojo-schema" check "--rojo" sources/rojo "--docs" sources/creator-docs
+}
+
 def "main snapshot" []: nothing -> nothing {
     try {
         let store = store-path
