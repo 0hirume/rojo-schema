@@ -1,17 +1,8 @@
 name: pages
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/pages.html"
-      - ".github/pages.nu"
   schedule:
     - cron: "0 3 * * *"
-  release:
-    types:
-      - published
   workflow_dispatch: {}
 
 concurrency:

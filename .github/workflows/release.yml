@@ -19,6 +19,9 @@ jobs:
     name: test
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      DOCS_REPOSITORY: Roblox/creator-docs
+      ROJO_REPOSITORY: rojo-rbx/rojo
     permissions:
       contents: read
     steps:
