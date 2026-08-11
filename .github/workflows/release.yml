@@ -10,6 +10,9 @@ concurrency:
 
 permissions: {}
 
+env:
+  MISE_TASK_RUN_AUTO_INSTALL: "false"
+
 jobs:
   draft:
     name: create draft
