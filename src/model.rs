@@ -14,6 +14,7 @@ pub struct Api {
     pub diagnostics: Vec<Diagnostic>,
     pub docs_counts: BTreeMap<String, usize>,
     pub deprecation_overrides: Vec<DeprecationOverride>,
+    pub client_tracker: ClientTrackerStats,
 }
 
 #[derive(Debug, Clone)]
@@ -113,6 +114,8 @@ pub struct CoverageItem {
     pub projectable: bool,
     pub disposition: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub schema_ref: Option<String>,
 }
 
@@ -145,6 +148,19 @@ pub struct SourceInfo {
 
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ClientTrackerStats {
+    pub classes: usize,
+    pub properties: usize,
+    pub methods: usize,
+    pub events: usize,
+    pub callbacks: usize,
+    pub other_members: usize,
+    pub enums: usize,
+    pub enum_items: usize,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Stats {
     pub classes: usize,
     pub properties: usize,
@@ -159,6 +175,7 @@ pub struct Stats {
     pub unclassified: usize,
     pub project_schema_bytes: usize,
     pub model_schema_bytes: usize,
+    pub client_tracker: ClientTrackerStats,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -183,5 +200,6 @@ pub struct Coverage {
     pub variant_types: Vec<String>,
     pub deprecation_overrides: Vec<DeprecationOverride>,
     pub diagnostics: Vec<Diagnostic>,
+    pub client_tracker: ClientTrackerStats,
     pub items: Vec<CoverageItem>,
 }

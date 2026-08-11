@@ -22,6 +22,7 @@ jobs:
     env:
       DOCS_REPOSITORY: Roblox/creator-docs
       ROJO_REPOSITORY: rojo-rbx/rojo
+      TRACKER_REPOSITORY: MaximumADHD/Roblox-Client-Tracker
     permissions:
       contents: read
     steps:
@@ -49,6 +50,7 @@ jobs:
         env:
           ROJO_SCHEMA_DOCS: ${{ github.workspace }}/sources/creator-docs
           ROJO_SCHEMA_ROJO: ${{ github.workspace }}/sources/rojo
+          ROJO_SCHEMA_TRACKER: ${{ github.workspace }}/sources/client-tracker
         run: cargo +nightly test --locked
 
   draft:
