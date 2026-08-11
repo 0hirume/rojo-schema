@@ -14,34 +14,8 @@ env:
   MISE_TASK_RUN_AUTO_INSTALL: "false"
 
 jobs:
-  draft:
-    name: create draft
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # create the draft release.
-    steps:
-      - name: checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: set up mise
-        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
-        with:
-          version: 2026.8.3
-          cache: false
-          install_args: aqua:nushell/nushell gh
-
-      - name: create draft
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-          REPOSITORY: ${{ github.repository }}
-        run: mise run release:draft
-
   build:
     name: build ${{ matrix.target }}
-    needs: draft
     strategy:
       fail-fast: false
       matrix:
@@ -64,7 +38,7 @@ jobs:
             suffix: ""
     runs-on: ${{ matrix.runner }}
     permissions:
-      contents: write # upload this target's release assets.
+      contents: read
     steps:
       - name: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -76,17 +50,22 @@ jobs:
         with:
           version: 2026.8.3
           cache: false
-          install_args: aqua:nushell/nushell gh rust
+          install_args: aqua:nushell/nushell rust
 
-      - name: build and upload binary
+      - name: build and package binary
         env:
           ARCHIVE: ${{ matrix.archive }}
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-          REPOSITORY: ${{ github.repository }}
           SUFFIX: ${{ matrix.suffix }}
           TARGET: ${{ matrix.target }}
         run: mise run release:build
+
+      - name: upload binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ matrix.target }}
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 1
 
   test:
     name: test release binary
@@ -112,11 +91,14 @@ jobs:
           cache: false
           install_args: aqua:nushell/nushell gh
 
+      - name: download Linux binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-x86_64-unknown-linux-gnu
+
       - name: test release binary
         env:
           GH_TOKEN: ${{ github.token }}
-          GIT_LFS_SKIP_SMUDGE: "1"
-          RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
         run: mise run release:test
 
@@ -124,7 +106,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     permissions:
-      contents: write # publish the completed draft release.
+      contents: write # create the tested release.
       actions: write # trigger the Pages refresh after publishing.
     steps:
       - name: checkout
@@ -138,6 +120,13 @@ jobs:
           version: 2026.8.3
           cache: false
           install_args: aqua:nushell/nushell gh
+
+      - name: download binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-*
+          path: artifacts
+          merge-multiple: true
 
       - name: publish release
         env:

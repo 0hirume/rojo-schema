@@ -25,6 +25,16 @@ def checked [program: string, ...arguments: string]: nothing -> nothing {
     }
 }
 
+def captured [program: string, ...arguments: string]: nothing -> string {
+    let result = run-external $program ...$arguments | complete
+
+    if $result.exit_code != 0 {
+        fail $"($program) failed with exit code ($result.exit_code): ($result.stderr | str trim)"
+    }
+
+    $result.stdout
+}
+
 def main []: nothing -> error {
     fail "subcommand required"
 }
@@ -78,30 +88,26 @@ def clone-store [store: string]: nothing -> nothing {
 
 def "main clone-sources" []: nothing -> nothing {
     checked gh repo clone $env.ROJO_REPOSITORY sources/rojo "--" "--depth" "1"
-    (checked
-        gh
-        repo
-        clone
-        $env.TRACKER_REPOSITORY
-        sources/client-tracker
-        "--"
-        "--branch"
-        roblox
-        "--depth"
-        "1"
-        "--filter=blob:none"
-        "--sparse"
-    )
-    (checked
-        git
-        "-C"
-        sources/client-tracker
-        sparse-checkout
-        set
-        "--no-cone"
-        Full-API-Dump.json
-        version.txt
-    )
+
+    try {
+        let tracker = [sources client-tracker] | path join
+        mkdir $tracker
+        let revision = (
+            captured gh api $"repos/($env.TRACKER_REPOSITORY)/commits/roblox" "--jq" .sha
+            | str trim
+        )
+        $revision | save --force ($tracker | path join .revision)
+        for file in [Full-API-Dump.json version.txt] {
+            (captured
+                gh
+                api
+                $"repos/($env.TRACKER_REPOSITORY)/contents/($file)?ref=($revision)"
+                "--header"
+                "Accept: application/vnd.github.raw+json"
+            ) | save --force ($tracker | path join $file)
+        }
+    } catch {|error| fail $error.msg }
+
     (checked
         gh
         repo
@@ -126,21 +132,21 @@ def "main clone-sources" []: nothing -> nothing {
 
 def "main download-generator" []: nothing -> nothing {
     let archive = "rojo-schema-x86_64-unknown-linux-gnu.tar.gz"
-    let checksum = $"($archive).sha256"
-    let tag = $env | get --optional RELEASE_TAG
+    checked gh release download "--repo" $env.REPOSITORY "--pattern" $"($archive)*"
+    install-generator $archive
+}
 
-    if ($tag == null) or ($tag == "") {
-        checked gh release download "--repo" $env.REPOSITORY "--pattern" $"($archive)*"
-    } else {
-        checked gh release download $tag "--repo" $env.REPOSITORY "--pattern" $"($archive)*"
-    }
-
-    checked sha256sum "--check" $checksum
+def install-generator [archive: string]: nothing -> nothing {
+    checked sha256sum "--check" $"($archive).sha256"
     try {
         mkdir bin
     } catch {|error| fail $error.msg }
     checked tar "-xzf" $archive "-C" bin
     checked chmod +x bin/rojo-schema
+}
+
+def "main install-generator" []: nothing -> nothing {
+    install-generator rojo-schema-x86_64-unknown-linux-gnu.tar.gz
 }
 
 def "main generate" []: nothing -> nothing {

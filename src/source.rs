@@ -14,6 +14,7 @@ const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
 const REFLECTION_CRATE: &str = "rbx_reflection_database";
 const TRACKER_REPOSITORY: &str = "https://github.com/MaximumADHD/Roblox-Client-Tracker";
 const TRACKER_DUMP: &str = "Full-API-Dump.json";
+const TRACKER_REVISION: &str = ".revision";
 const TRACKER_VERSION: &str = "version.txt";
 
 #[derive(Debug, Clone)]
@@ -104,7 +105,7 @@ pub fn tracker_source(path: &Path) -> Result<SourceInfo> {
             &root,
             [PathBuf::from(TRACKER_DUMP), PathBuf::from(TRACKER_VERSION)],
         )?,
-        revision: git_revision(&root),
+        revision: source_revision(&root, TRACKER_REVISION),
     })
 }
 
@@ -255,6 +256,16 @@ fn hash_paths(root: &Path, paths: impl IntoIterator<Item = PathBuf>) -> Result<S
         output.push(char::from(HEX_DIGITS[usize::from(byte & 0x0f)]));
     }
     Ok(output)
+}
+
+fn source_revision(path: &Path, revision_file: &str) -> Option<String> {
+    if let Ok(revision) = fs::read_to_string(path.join(revision_file)) {
+        let revision = revision.trim();
+        if !revision.is_empty() {
+            return Some(revision.to_owned());
+        }
+    }
+    git_revision(path)
 }
 
 fn git_revision(path: &Path) -> Option<String> {
