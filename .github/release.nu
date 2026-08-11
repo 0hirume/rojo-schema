@@ -22,29 +22,6 @@ def main []: nothing -> error {
     fail "subcommand required"
 }
 
-def "main draft" []: nothing -> nothing {
-    let release = (
-        run-external gh release view $env.RELEASE_TAG "--repo" $env.REPOSITORY
-        | complete
-    )
-
-    if $release.exit_code == 0 {
-        return
-    }
-
-    (checked
-        gh
-        release
-        create
-        $env.RELEASE_TAG
-        "--repo"
-        $env.REPOSITORY
-        "--verify-tag"
-        "--draft"
-        "--generate-notes"
-    )
-}
-
 def "main package" []: nothing -> nothing {
     let binary = [target $env.TARGET release $"rojo-schema($env.SUFFIX)"] | path join
     let archive = $"rojo-schema-($env.TARGET).($env.ARCHIVE)"
@@ -75,30 +52,23 @@ def "main package" []: nothing -> nothing {
     } catch {|error| fail $error.msg }
 }
 
-def "main upload" []: nothing -> nothing {
-    let archive = $"artifacts/rojo-schema-($env.TARGET).($env.ARCHIVE)"
-    (checked
-        gh
-        release
-        upload
-        $env.RELEASE_TAG
-        $archive
-        $"($archive).sha256"
-        "--repo"
-        $env.REPOSITORY
-        "--clobber"
-    )
-}
-
 def "main publish" []: nothing -> nothing {
+    let artifacts = glob artifacts/* | each {|artifact| $artifact | into string } | sort
+
+    if ($artifacts | is-empty) {
+        fail "release artifacts are missing"
+    }
+
     (checked
         gh
         release
-        edit
+        create
         $env.RELEASE_TAG
+        ...$artifacts
         "--repo"
         $env.REPOSITORY
-        "--draft=false"
+        "--verify-tag"
+        "--generate-notes"
         "--latest"
     )
 }

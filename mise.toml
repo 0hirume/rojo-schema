@@ -38,24 +38,19 @@ run = [
   "nu .github/pages.nu stage",
 ]
 
-[tasks."release:draft"]
-description = "Create the draft GitHub release"
-run = "nu .github/release.nu draft"
-
 [tasks."release:build"]
-description = "Build and upload one release target"
+description = "Build and package one release target"
 run = [
   "rustup target add {{env.TARGET}}",
   "cargo build --release --locked --target {{env.TARGET}}",
   "nu .github/release.nu package",
-  "nu .github/release.nu upload",
 ]
 
 [tasks."release:test"]
 description = "Test the packaged Linux release binary"
 run = [
   "nu .github/pages.nu clone-sources",
-  "nu .github/pages.nu download-generator",
+  "nu .github/pages.nu install-generator",
   "nu .github/pages.nu generate",
   "nu .github/pages.nu check",
 ]
