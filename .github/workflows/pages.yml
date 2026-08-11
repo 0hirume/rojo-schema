@@ -48,15 +48,11 @@ jobs:
       - name: download generator
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name || '' }}
           REPOSITORY: ${{ github.repository }}
         run: nu .github/pages.nu download-generator
 
-      - name: generate schemas
+      - name: generate schemas with release binary
         run: nu .github/pages.nu generate
-
-      - name: check schemas
-        run: nu .github/pages.nu check
 
       - name: store snapshot
         env:
