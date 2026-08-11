@@ -135,17 +135,19 @@ def "main download-generator" []: nothing -> nothing {
     }
 
     checked sha256sum "--check" $checksum
-    mkdir bin
+    try {
+        mkdir bin
+    } catch {|error| fail $error.msg }
     checked tar "-xzf" $archive "-C" bin
-    checked chmod "+x" "bin/rojo-schema"
+    checked chmod "+x" bin/rojo-schema
 }
 
 def "main generate" []: nothing -> nothing {
-    checked "bin/rojo-schema" generate "--rojo" sources/rojo "--docs" sources/creator-docs "--tracker" sources/client-tracker
+    checked bin/rojo-schema generate "--rojo" sources/rojo "--docs" sources/creator-docs "--tracker" sources/client-tracker
 }
 
 def "main check" []: nothing -> nothing {
-    checked "bin/rojo-schema" check "--rojo" sources/rojo "--docs" sources/creator-docs "--tracker" sources/client-tracker
+    checked bin/rojo-schema check "--rojo" sources/rojo "--docs" sources/creator-docs "--tracker" sources/client-tracker
 }
 
 def "main snapshot" []: nothing -> nothing {
