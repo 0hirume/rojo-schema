@@ -86,7 +86,7 @@ def "main clone-sources" []: nothing -> nothing {
         sources/client-tracker
         "--"
         "--branch"
-        "roblox"
+        roblox
         "--depth"
         "1"
         "--filter=blob:none"
@@ -139,7 +139,7 @@ def "main download-generator" []: nothing -> nothing {
         mkdir bin
     } catch {|error| fail $error.msg }
     checked tar "-xzf" $archive "-C" bin
-    checked chmod "+x" bin/rojo-schema
+    checked chmod +x bin/rojo-schema
 }
 
 def "main generate" []: nothing -> nothing {
