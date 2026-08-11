@@ -98,6 +98,7 @@ def "main clone-sources" []: nothing -> nothing {
         sources/client-tracker
         sparse-checkout
         set
+        "--no-cone"
         Full-API-Dump.json
         version.txt
     )
