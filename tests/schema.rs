@@ -143,7 +143,7 @@ fn schema_is_source_derived_and_class_aware() {
     assert_eq!(schema["properties"]["tree"]["$ref"], "#/$defs/node~1Any");
 
     let middleware = definitions["rojo/Middleware"]["anyOf"].as_array().unwrap();
-    assert!(!middleware.is_empty());
+    assert_ne!(middleware.len(), 0, "middleware must not be empty");
     assert!(middleware.iter().all(|branch| branch["const"].is_string()));
     assert_eq!(coverage["counts"]["unclassified"], 0);
     assert_eq!(

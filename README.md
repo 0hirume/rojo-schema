@@ -65,25 +65,24 @@ reflection entries were reconciled.
 
 ## Development
 
-Generation requires local Rojo, Creator Docs, and Client Tracker checkouts:
+All development and release operations run through mise tasks. Generation
+requires local Rojo, Creator Docs, and Client Tracker checkouts:
 
 ```console
-cargo run --locked -- generate --rojo C:/path/to/rojo --docs C:/path/to/creator-docs --tracker C:/path/to/Roblox-Client-Tracker
-cargo run --locked -- check --rojo C:/path/to/rojo --docs C:/path/to/creator-docs --tracker C:/path/to/Roblox-Client-Tracker
+mise run generate -- C:/path/to/rojo C:/path/to/creator-docs C:/path/to/Roblox-Client-Tracker
+mise run check -- C:/path/to/rojo C:/path/to/creator-docs C:/path/to/Roblox-Client-Tracker
 ```
 
 `generate` writes the project schema, model schema, manifest, and coverage
 report to the ignored `dist` directory. `check` verifies that generation is
-deterministic and the existing artifacts are current. `--docs` also accepts the
+deterministic and the existing artifacts are current. The docs path may be the
 Creator Docs `content/en-us/reference/engine` directory.
 
-Tests use `ROJO_SCHEMA_ROJO`, `ROJO_SCHEMA_DOCS`, and
+Verification uses `ROJO_SCHEMA_ROJO`, `ROJO_SCHEMA_DOCS`, and
 `ROJO_SCHEMA_TRACKER` for the same source paths:
 
 ```console
-cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --locked
+mise run verify
 ```
 
 ## Limits

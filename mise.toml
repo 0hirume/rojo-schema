@@ -1,8 +1,80 @@
+[tasks.generate]
+description = "Generate schemas from local source checkouts"
+usage = '''
+arg "<rojo>" help="Rojo checkout"
+arg "<docs>" help="Creator Docs checkout"
+arg "<tracker>" help="Client Tracker checkout"
+'''
+run = 'cargo run --locked -- generate --rojo {{usage.rojo}} --docs {{usage.docs}} --tracker {{usage.tracker}}'
+
+[tasks.check]
+description = "Check schema determinism and freshness"
+usage = '''
+arg "<rojo>" help="Rojo checkout"
+arg "<docs>" help="Creator Docs checkout"
+arg "<tracker>" help="Client Tracker checkout"
+'''
+run = 'cargo run --locked -- check --rojo {{usage.rojo}} --docs {{usage.docs}} --tracker {{usage.tracker}}'
+
+[tasks.verify]
+description = "Run all project checks"
+run = [
+  "cargo fmt -- --check",
+  "cargo clippy --all-targets --all-features --locked -- -D warnings",
+  "cargo test --locked",
+  "nu-lint .github",
+  "tombi lint",
+  "actionlint",
+  "zizmor .github/workflows/pages.yml .github/workflows/release.yml",
+]
+
+[tasks.pages]
+description = "Build the schema snapshot and Pages site"
+run = [
+  "nu .github/pages.nu clone-sources",
+  "nu .github/pages.nu download-generator",
+  "nu .github/pages.nu generate",
+  "nu .github/pages.nu snapshot",
+  "nu .github/pages.nu stage",
+]
+
+[tasks."release:draft"]
+description = "Create the draft GitHub release"
+run = "nu .github/release.nu draft"
+
+[tasks."release:build"]
+description = "Build and upload one release target"
+run = [
+  "rustup target add {{env.TARGET}}",
+  "cargo build --release --locked --target {{env.TARGET}}",
+  "nu .github/release.nu package",
+  "nu .github/release.nu upload",
+]
+
+[tasks."release:test"]
+description = "Test the packaged Linux release binary"
+run = [
+  "nu .github/pages.nu clone-sources",
+  "nu .github/pages.nu download-generator",
+  "nu .github/pages.nu generate",
+  "nu .github/pages.nu check",
+]
+
+[tasks."release:publish"]
+description = "Publish the release and refresh Pages"
+run = [
+  "nu .github/release.nu publish",
+  "nu .github/release.nu trigger-pages",
+]
+
 [tools]
+rust = { version = "nightly", profile = "minimal", components = ["rustfmt", "clippy"] }
 "aqua:tombi-toml/tombi" = "latest"
 "aqua:nushell/nushell" = "latest"
+"aqua:rhysd/actionlint" = "latest"
+"cargo:nu-lint" = "1.3.0"
+gh = "latest"
 "github:zizmorcore/zizmor" = "latest"
 "npm:@actions/languageserver" = "latest"
 "npm:oxfmt" = "latest"
 "npm:yaml-language-server" = "latest"
-"aqua:rhysd/actionlint" = "latest"
