@@ -10,10 +10,6 @@ concurrency:
 
 permissions: {}
 
-defaults:
-  run:
-    shell: nu {0}
-
 jobs:
   draft:
     name: create draft
@@ -26,18 +22,19 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: install nushell
+      - name: set up mise
         uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
+          version: 2026.8.3
           cache: false
-          install_args: aqua:nushell/nushell
+          install_args: aqua:nushell/nushell gh
 
       - name: create draft
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
-        run: nu .github/release.nu draft
+        run: mise run release:draft
 
   build:
     name: build ${{ matrix.target }}
@@ -71,37 +68,22 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: install nushell
+      - name: set up mise
         uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
+          version: 2026.8.3
           cache: false
-          install_args: aqua:nushell/nushell
+          install_args: aqua:nushell/nushell gh rust
 
-      - name: install rust nightly
-        env:
-          TARGET: ${{ matrix.target }}
-        run: rustup toolchain install nightly --profile minimal --target $env.TARGET
-
-      - name: build
-        env:
-          TARGET: ${{ matrix.target }}
-        run: cargo +nightly build --release --locked --target $env.TARGET
-
-      - name: package
-        env:
-          ARCHIVE: ${{ matrix.archive }}
-          SUFFIX: ${{ matrix.suffix }}
-          TARGET: ${{ matrix.target }}
-        run: nu .github/release.nu package
-
-      - name: upload binary
+      - name: build and upload binary
         env:
           ARCHIVE: ${{ matrix.archive }}
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
+          SUFFIX: ${{ matrix.suffix }}
           TARGET: ${{ matrix.target }}
-        run: nu .github/release.nu upload
+        run: mise run release:build
 
   test:
     name: test release binary
@@ -120,30 +102,20 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: install nushell
+      - name: set up mise
         uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
+          version: 2026.8.3
           cache: false
-          install_args: aqua:nushell/nushell
+          install_args: aqua:nushell/nushell gh
 
-      - name: clone sources
+      - name: test release binary
         env:
           GH_TOKEN: ${{ github.token }}
           GIT_LFS_SKIP_SMUDGE: "1"
-        run: nu .github/pages.nu clone-sources
-
-      - name: download release generator
-        env:
-          GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
-        run: nu .github/pages.nu download-generator
-
-      - name: generate schemas
-        run: nu .github/pages.nu generate
-
-      - name: check schemas
-        run: nu .github/pages.nu check
+        run: mise run release:test
 
   publish:
     needs: test
@@ -157,22 +129,17 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: install nushell
+      - name: set up mise
         uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
+          version: 2026.8.3
           cache: false
-          install_args: aqua:nushell/nushell
+          install_args: aqua:nushell/nushell gh
 
       - name: publish release
         env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
-        run: nu .github/release.nu publish
-
-      - name: trigger Pages
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          REPOSITORY: ${{ github.repository }}
-        run: gh workflow run pages.yml --repo $env.REPOSITORY --ref $env.DEFAULT_BRANCH
+        run: mise run release:publish

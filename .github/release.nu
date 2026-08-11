@@ -102,3 +102,16 @@ def "main publish" []: nothing -> nothing {
         "--latest"
     )
 }
+
+def "main trigger-pages" []: nothing -> nothing {
+    (checked
+        gh
+        workflow
+        run
+        pages.yml
+        "--repo"
+        $env.REPOSITORY
+        "--ref"
+        $env.DEFAULT_BRANCH
+    )
+}
