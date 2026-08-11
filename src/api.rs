@@ -8,17 +8,19 @@ use rbx_reflection::{
 use crate::{
     docs::{Catalog, Doc, Member},
     model::{
-        Api, Class, Classification, CoverageItem, Diagnostic, Enum, EnumItem, Property,
-        PropertyType,
+        Api, Class, Classification, ClientTrackerStats, CoverageItem, Diagnostic, Enum, EnumItem,
+        Property, PropertyType,
     },
+    tracker,
 };
 
-pub fn build(docs: &Catalog, variants: &BTreeSet<String>) -> Api {
-    Builder::new(docs, variants).build()
+pub fn build(docs: &Catalog, tracker: &tracker::Catalog, variants: &BTreeSet<String>) -> Api {
+    Builder::new(docs, tracker, variants).build()
 }
 
 struct Builder<'a> {
     docs: &'a Catalog,
+    tracker: &'a tracker::Catalog,
     database: &'static ReflectionDatabase<'static>,
     supported: BTreeSet<String>,
     classes: BTreeMap<String, Class>,
@@ -26,13 +28,15 @@ struct Builder<'a> {
     variants: BTreeSet<String>,
     coverage: Vec<CoverageItem>,
     diagnostics: Vec<Diagnostic>,
+    client_tracker: ClientTrackerStats,
 }
 
 impl<'a> Builder<'a> {
-    fn new(docs: &'a Catalog, variants: &BTreeSet<String>) -> Self {
+    fn new(docs: &'a Catalog, tracker: &'a tracker::Catalog, variants: &BTreeSet<String>) -> Self {
         let database = rbx_reflection_database::get_bundled();
         Self {
             docs,
+            tracker,
             database,
             supported: variants.clone(),
             classes: BTreeMap::new(),
@@ -40,6 +44,7 @@ impl<'a> Builder<'a> {
             variants: variants.clone(),
             coverage: Vec::new(),
             diagnostics: Vec::new(),
+            client_tracker: ClientTrackerStats::default(),
         }
     }
 
@@ -49,6 +54,7 @@ impl<'a> Builder<'a> {
         self.add_enums();
         add_docs_enum_coverage(self.docs, &self.enums, &mut self.coverage);
         add_non_projectable_docs(self.docs, &mut self.coverage);
+        self.add_tracker_coverage();
         self.add_variant_coverage();
         self.finish()
     }
@@ -295,6 +301,148 @@ impl<'a> Builder<'a> {
         );
     }
 
+    fn add_tracker_coverage(&mut self) {
+        let tracker = self.tracker;
+        let class_names = tracker.classes.keys().cloned().collect::<Vec<_>>();
+        for name in class_names {
+            let class = &tracker.classes[&name];
+            self.add_tracker_class(&name, class);
+        }
+
+        let enum_names = tracker.enums.keys().cloned().collect::<Vec<_>>();
+        for name in enum_names {
+            let enumeration = &tracker.enums[&name];
+            self.add_tracker_enum(&name, enumeration);
+        }
+    }
+
+    fn add_tracker_class(&mut self, name: &str, class: &tracker::Class) {
+        let reflected = self.classes.contains_key(name);
+        self.client_tracker.classes += 1;
+        self.coverage.push(item(
+            "clientTracker",
+            "class",
+            name,
+            if reflected {
+                Classification::Matched
+            } else {
+                Classification::ApiOnly
+            },
+            false,
+            if reflected {
+                "Client Tracker inventory; reflection remains the projectability authority"
+            } else {
+                "not present in Rojo's pinned reflection database"
+            },
+            None,
+        ));
+
+        for member in class.members.values() {
+            self.add_tracker_member(name, member);
+        }
+    }
+
+    fn add_tracker_member(&mut self, class_name: &str, member: &tracker::Member) {
+        let kind = tracker_member_kind(&member.kind);
+        let reflected_property = kind == "property"
+            && self
+                .classes
+                .get(class_name)
+                .is_some_and(|class| class.properties.contains_key(&member.name));
+        let classification = if kind == "property" && reflected_property {
+            Classification::Matched
+        } else if kind == "property" {
+            Classification::ApiOnly
+        } else {
+            Classification::NonProjectable
+        };
+        self.coverage.push(with_source_type(
+            item(
+                "clientTracker",
+                kind,
+                &format!("{class_name}.{}", member.name),
+                classification,
+                false,
+                if kind == "property" && reflected_property {
+                    "Client Tracker property; reflection remains the schema authority"
+                } else if kind == "property" {
+                    "not present in Rojo's pinned reflection database"
+                } else {
+                    "runtime API member, not a project property"
+                },
+                None,
+            ),
+            tracker_type(member),
+        ));
+        match kind {
+            "property" => self.client_tracker.properties += 1,
+            "method" => self.client_tracker.methods += 1,
+            "event" => self.client_tracker.events += 1,
+            "callback" => self.client_tracker.callbacks += 1,
+            _ => self.client_tracker.other_members += 1,
+        }
+    }
+
+    fn add_tracker_enum(&mut self, name: &str, enumeration: &tracker::Enum) {
+        let reflected = self.enums.contains_key(name);
+        self.client_tracker.enums += 1;
+        self.coverage.push(item(
+            "clientTracker",
+            "enum",
+            name,
+            if reflected {
+                Classification::Matched
+            } else {
+                Classification::ApiOnly
+            },
+            false,
+            if reflected {
+                "Client Tracker inventory; reflection remains the projectability authority"
+            } else {
+                "not present in Rojo's pinned reflection database"
+            },
+            None,
+        ));
+
+        for (item_name, value) in &enumeration.items {
+            let reflected_value = self
+                .enums
+                .get(name)
+                .and_then(|enumeration| enumeration.items.get(item_name));
+            let classification = match reflected_value {
+                Some(reflected) if reflected.value == *value => Classification::Matched,
+                Some(reflected) => {
+                    self.diagnostics.push(Diagnostic {
+                        name: format!("{name}.{item_name}"),
+                        classification: Classification::MetadataConflict,
+                        reflection: reflected.value.to_string(),
+                        api: value.to_string(),
+                    });
+                    Classification::MetadataConflict
+                }
+                None => Classification::ApiOnly,
+            };
+            self.client_tracker.enum_items += 1;
+            self.coverage.push(item(
+                "clientTracker",
+                "enum-item",
+                &format!("{name}.{item_name}"),
+                classification,
+                false,
+                match classification {
+                    Classification::Matched => {
+                        "Client Tracker value matches the reflected enum value"
+                    }
+                    Classification::MetadataConflict => {
+                        "reflection enum value takes precedence over Client Tracker"
+                    }
+                    _ => "not present in Rojo's pinned reflection database",
+                },
+                None,
+            ));
+        }
+    }
+
     fn add_variant_coverage(&mut self) {
         for variant in &self.variants {
             let supported = self.supported.contains(variant.as_str());
@@ -349,7 +497,18 @@ impl<'a> Builder<'a> {
             diagnostics: self.diagnostics,
             docs_counts,
             deprecation_overrides: self.docs.deprecation_overrides.clone(),
+            client_tracker: self.client_tracker,
         }
+    }
+}
+
+fn tracker_member_kind(kind: &str) -> &str {
+    match kind {
+        "Property" => "property",
+        "Function" => "method",
+        "Event" => "event",
+        "Callback" => "callback",
+        _ => "member",
     }
 }
 
@@ -612,7 +771,21 @@ fn item(
         classification,
         projectable,
         disposition: disposition.to_owned(),
+        source_type: None,
         schema_ref,
+    }
+}
+
+fn with_source_type(mut coverage: CoverageItem, source_type: Option<String>) -> CoverageItem {
+    coverage.source_type = source_type;
+    coverage
+}
+
+fn tracker_type(member: &tracker::Member) -> Option<String> {
+    match (&member.type_category, &member.type_name) {
+        (Some(category), Some(name)) => Some(format!("{category}.{name}")),
+        (None, Some(name)) => Some(name.clone()),
+        _ => None,
     }
 }
 

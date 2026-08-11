@@ -46,13 +46,18 @@ schemas, their manifest and coverage report, and every immutable snapshot.
 
 ## How it is generated
 
-`rojo-schema` combines three sources without modifying them:
+`rojo-schema` combines four sources without modifying them:
 
 - Rojo defines the project, tree, and JSON model grammars.
 - Rojo's reflection database defines Roblox classes, properties, types, enums,
-  defaults, and serialization metadata.
+  defaults, and serialization metadata; it remains authoritative for what can
+  be represented as a project or model schema.
 - Roblox Creator Docs provides descriptions, deprecations, security, thread
   safety, capabilities, and documentation tags.
+- MaximumADHD's Roblox Client Tracker `Full-API-Dump.json` provides an
+  independent current API inventory and property types. Its coverage is
+  reported separately (including `sourceType`) and is not used to invent
+  reflection defaults or serialization behavior.
 
 The generated schema uses JSON Schema Draft 2020-12. Its manifest records the
 exact source revisions and hashes, while its coverage report shows how API and
@@ -60,11 +65,11 @@ reflection entries were reconciled.
 
 ## Development
 
-Generation requires local Rojo and Creator Docs checkouts:
+Generation requires local Rojo, Creator Docs, and Client Tracker checkouts:
 
 ```console
-cargo run --locked -- generate --rojo C:/path/to/rojo --docs C:/path/to/creator-docs
-cargo run --locked -- check --rojo C:/path/to/rojo --docs C:/path/to/creator-docs
+cargo run --locked -- generate --rojo C:/path/to/rojo --docs C:/path/to/creator-docs --tracker C:/path/to/Roblox-Client-Tracker
+cargo run --locked -- check --rojo C:/path/to/rojo --docs C:/path/to/creator-docs --tracker C:/path/to/Roblox-Client-Tracker
 ```
 
 `generate` writes the project schema, model schema, manifest, and coverage
@@ -72,7 +77,8 @@ report to the ignored `dist` directory. `check` verifies that generation is
 deterministic and the existing artifacts are current. `--docs` also accepts the
 Creator Docs `content/en-us/reference/engine` directory.
 
-Tests use `ROJO_SCHEMA_ROJO` and `ROJO_SCHEMA_DOCS` for the same source paths:
+Tests use `ROJO_SCHEMA_ROJO`, `ROJO_SCHEMA_DOCS`, and
+`ROJO_SCHEMA_TRACKER` for the same source paths:
 
 ```console
 cargo fmt --check

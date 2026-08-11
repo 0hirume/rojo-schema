@@ -27,6 +27,7 @@ fn config() -> Config {
     Config {
         rojo: source("ROJO_SCHEMA_ROJO"),
         docs: source("ROJO_SCHEMA_DOCS"),
+        tracker: source("ROJO_SCHEMA_TRACKER"),
         project: root().join("dist/project.schema.json"),
         model: root().join("dist/model.schema.json"),
         manifest: root().join("dist/manifest.json"),
@@ -83,6 +84,13 @@ fn schema_is_source_derived_and_class_aware() {
     assert_eq!(manifest["modelSchemaId"], model["$id"]);
     assert_model_schema(&model);
     assert!(manifest["sources"]["rojo"]["version"].is_string());
+    assert!(manifest["sources"]["clientTracker"]["version"].is_string());
+    assert!(coverage["clientTracker"]["classes"].as_u64().unwrap() > 0);
+    assert!(coverage["items"].as_array().unwrap().iter().any(|item| {
+        item["source"] == "clientTracker"
+            && item["kind"] == "property"
+            && item["sourceType"].is_string()
+    }));
     for source in manifest["sources"].as_object().unwrap().values() {
         assert!(source.get("path").is_none());
         assert!(source["repository"]

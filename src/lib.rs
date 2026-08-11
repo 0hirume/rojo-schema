@@ -6,6 +6,7 @@ pub mod model;
 mod pointer;
 mod schema;
 mod source;
+mod tracker;
 
 use std::{
     collections::BTreeMap,
@@ -22,6 +23,7 @@ use crate::model::{Classification, Coverage, Manifest, SourceInfo, Stats};
 pub struct Config {
     pub rojo: PathBuf,
     pub docs: PathBuf,
+    pub tracker: PathBuf,
     pub project: PathBuf,
     pub model: PathBuf,
     pub manifest: PathBuf,
@@ -48,10 +50,12 @@ pub struct Artifacts {
 pub fn generate(config: &Config) -> Result<Artifacts> {
     let rojo = source::load_rojo(&config.rojo)?;
     let docs = docs::load(&config.docs)?;
+    let tracker = tracker::load(&config.tracker)?;
     let docs_source = source::docs_source(&config.docs, &docs.studio_version)?;
     let reflection_source = source::reflection_source(&config.rojo)?;
+    let tracker_source = source::tracker_source(&config.tracker)?;
     let formats = format::values()?;
-    let api = api::build(&docs, &formats.variants);
+    let api = api::build(&docs, &tracker, &formats.variants);
     let schemas = schema::build(&api, &rojo.source.version, &rojo.grammar, &formats)?;
     let project_id = schemas.project["$id"]
         .as_str()
@@ -84,9 +88,11 @@ pub fn generate(config: &Config) -> Result<Artifacts> {
         unclassified: 0,
         project_schema_bytes: project_bytes.len(),
         model_schema_bytes: model_bytes.len(),
+        client_tracker: api.client_tracker.clone(),
     };
 
     let sources = BTreeMap::from([
+        ("clientTracker".to_owned(), tracker_source),
         ("creatorDocs".to_owned(), docs_source),
         ("reflection".to_owned(), reflection_source),
         ("rojo".to_owned(), rojo.source),
@@ -123,6 +129,7 @@ pub fn generate(config: &Config) -> Result<Artifacts> {
         variant_types: api.variant_types,
         deprecation_overrides: api.deprecation_overrides,
         diagnostics: api.diagnostics,
+        client_tracker: api.client_tracker,
         items: api.coverage,
     };
 
@@ -229,7 +236,12 @@ fn classification_name(classification: Classification) -> String {
 pub fn source_versions(config: &Config) -> Result<BTreeMap<String, SourceInfo>> {
     let rojo = source::load_rojo(&config.rojo)?;
     let docs = docs::load(&config.docs)?;
+    tracker::load(&config.tracker)?;
     Ok(BTreeMap::from([
+        (
+            "clientTracker".to_owned(),
+            source::tracker_source(&config.tracker)?,
+        ),
         (
             "creatorDocs".to_owned(),
             source::docs_source(&config.docs, &docs.studio_version)?,

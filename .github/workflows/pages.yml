@@ -18,6 +18,7 @@ defaults:
 env:
   DOCS_REPOSITORY: Roblox/creator-docs
   ROJO_REPOSITORY: rojo-rbx/rojo
+  TRACKER_REPOSITORY: MaximumADHD/Roblox-Client-Tracker
 
 jobs:
   build:

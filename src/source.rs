@@ -12,6 +12,9 @@ use crate::{docs, grammar, model::SourceInfo};
 
 const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
 const REFLECTION_CRATE: &str = "rbx_reflection_database";
+const TRACKER_REPOSITORY: &str = "https://github.com/MaximumADHD/Roblox-Client-Tracker";
+const TRACKER_DUMP: &str = "Full-API-Dump.json";
+const TRACKER_VERSION: &str = "version.txt";
 
 #[derive(Debug, Clone)]
 pub struct Rojo {
@@ -75,6 +78,33 @@ pub fn docs_source(path: &Path, studio_version: &str) -> Result<SourceInfo> {
         version: studio_version.to_owned(),
         sha256: hash_paths(&root, files)?,
         revision: git_revision(path),
+    })
+}
+
+pub fn tracker_source(path: &Path) -> Result<SourceInfo> {
+    let root = crate::tracker::root(path)?;
+    let version_path = root.join(TRACKER_VERSION);
+    let version = fs::read_to_string(&version_path)
+        .with_context(|| format!("reading {}", version_path.display()))?
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    ensure!(
+        !version.is_empty(),
+        "{} has no Studio version",
+        version_path.display()
+    );
+
+    Ok(SourceInfo {
+        repository: TRACKER_REPOSITORY.to_owned(),
+        version,
+        sha256: hash_paths(
+            &root,
+            [PathBuf::from(TRACKER_DUMP), PathBuf::from(TRACKER_VERSION)],
+        )?,
+        revision: git_revision(&root),
     })
 }
 

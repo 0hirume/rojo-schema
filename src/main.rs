@@ -29,6 +29,10 @@ struct Paths {
     #[arg(long)]
     docs: PathBuf,
 
+    /// `MaximumADHD` Roblox Client Tracker checkout on its `roblox` branch.
+    #[arg(long)]
+    tracker: PathBuf,
+
     /// Generated Draft 2020-12 project schema.
     #[arg(long, default_value = "dist/project.schema.json")]
     project: PathBuf,
@@ -51,6 +55,7 @@ impl From<Paths> for Config {
         Self {
             rojo: paths.rojo,
             docs: paths.docs,
+            tracker: paths.tracker,
             project: paths.project,
             model: paths.model,
             manifest: paths.manifest,

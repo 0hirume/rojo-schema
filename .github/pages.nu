@@ -82,6 +82,29 @@ def "main clone-sources" []: nothing -> nothing {
         gh
         repo
         clone
+        $env.TRACKER_REPOSITORY
+        sources/client-tracker
+        "--"
+        "--branch"
+        "roblox"
+        "--depth"
+        "1"
+        "--filter=blob:none"
+        "--sparse"
+    )
+    (checked
+        git
+        "-C"
+        sources/client-tracker
+        sparse-checkout
+        set
+        Full-API-Dump.json
+        version.txt
+    )
+    (checked
+        gh
+        repo
+        clone
         $env.DOCS_REPOSITORY
         sources/creator-docs
         "--"
@@ -118,11 +141,11 @@ def "main download-generator" []: nothing -> nothing {
 }
 
 def "main generate" []: nothing -> nothing {
-    checked "bin/rojo-schema" generate "--rojo" sources/rojo "--docs" sources/creator-docs
+    checked "bin/rojo-schema" generate "--rojo" sources/rojo "--docs" sources/creator-docs "--tracker" sources/client-tracker
 }
 
 def "main check" []: nothing -> nothing {
-    checked "bin/rojo-schema" check "--rojo" sources/rojo "--docs" sources/creator-docs
+    checked "bin/rojo-schema" check "--rojo" sources/rojo "--docs" sources/creator-docs "--tracker" sources/client-tracker
 }
 
 def "main snapshot" []: nothing -> nothing {
