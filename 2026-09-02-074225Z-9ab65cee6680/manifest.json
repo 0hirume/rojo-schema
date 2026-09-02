@@ -1,0 +1,61 @@
+{
+  "generator": "rojo-schema 0.4.0",
+  "schemaDraft": "https://json-schema.org/draft/2020-12/schema",
+  "projectSchemaId": "https://0hirume.github.io/rojo-schema/latest/project.schema.json",
+  "modelSchemaId": "https://0hirume.github.io/rojo-schema/latest/model.schema.json",
+  "sources": {
+    "clientTracker": {
+      "repository": "https://github.com/MaximumADHD/Roblox-Client-Tracker",
+      "version": "0.736.0.7361346",
+      "sha256": "aedaaeda3a5597c662f4d5af96cace52f8e1cf42f0cda53de455c09b988160d0",
+      "revision": "32cae51da92605703720a5ca0e94142de6afc174"
+    },
+    "creatorDocs": {
+      "repository": "https://github.com/Roblox/creator-docs",
+      "version": "0.736.0.7361346",
+      "sha256": "db153d755cc8ed791a11d2cae405f9d5bedfd8920e9596710663ca961999df13",
+      "revision": "d025c96bdb1c81570221997092fbe0ad94b5337c"
+    },
+    "reflection": {
+      "repository": "https://github.com/rojo-rbx/rbx-dom",
+      "version": "3.0.0+roblox-728",
+      "sha256": "3f5dd357c4c95d43e12283b9065b8b7b41788219db7a0f3a77a6e111f51522e6"
+    },
+    "rojo": {
+      "repository": "https://github.com/rojo-rbx/rojo",
+      "version": "7.7.0",
+      "sha256": "9355fd3783e46b19f52e1e150189385c8dc855e37e081b26eddeec92716b734e",
+      "revision": "a30a8ecd0f757a23c7d5be5f91e8a4d55d87b8fc"
+    }
+  },
+  "counts": {
+    "classes": 892,
+    "properties": 3936,
+    "flattenedProperties": 26846,
+    "enums": 596,
+    "enumItems": 3480,
+    "projectDefinitions": 6387,
+    "modelDefinitions": 6387,
+    "variantTypes": 41,
+    "apiItems": 25147,
+    "conflicts": 1846,
+    "unclassified": 0,
+    "projectSchemaBytes": 9884746,
+    "modelSchemaBytes": 9673593,
+    "clientTracker": {
+      "classes": 914,
+      "properties": 4028,
+      "methods": 3233,
+      "events": 1081,
+      "callbacks": 18,
+      "otherMembers": 0,
+      "enums": 623,
+      "enumItems": 3588
+    }
+  },
+  "limitations": [
+    "The class produced by a filesystem path cannot be selected statically, so path-backed nodes use the reflected property-name set and Rojo's general unresolved-value grammar.",
+    "Serializer formats without a reflected default sample are represented conservatively instead of being guessed.",
+    "Rojo runtime validation, filesystem access, and glob compilation are outside JSON Schema."
+  ]
+}
