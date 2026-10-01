@@ -1,8 +1,8 @@
 {
   "latest": {
-    "id": "2026-09-30-092436Z-24ddece065ae",
-    "createdAt": "2026-09-30T09:24:36Z",
-    "sha256": "24ddece065ae4161e4e120bfefed2dea060991fa16f4749d6efdd4d6a32ad9ea",
+    "id": "2026-10-01-095119Z-018b83ebc869",
+    "createdAt": "2026-10-01T09:51:19Z",
+    "sha256": "018b83ebc869be01e108fa5fc71a2ff8c5796b3bda0c542042290271bda1a83d",
     "artifacts": [
       "project.schema.json",
       "model.schema.json",
@@ -11,6 +11,17 @@
     ]
   },
   "snapshots": [
+    {
+      "id": "2026-10-01-095119Z-018b83ebc869",
+      "createdAt": "2026-10-01T09:51:19Z",
+      "sha256": "018b83ebc869be01e108fa5fc71a2ff8c5796b3bda0c542042290271bda1a83d",
+      "artifacts": [
+        "project.schema.json",
+        "model.schema.json",
+        "manifest.json",
+        "coverage.json"
+      ]
+    },
     {
       "id": "2026-09-30-092436Z-24ddece065ae",
       "createdAt": "2026-09-30T09:24:36Z",
