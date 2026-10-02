@@ -28,11 +28,10 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.repository.default_branch }}
 
-      - name: set up mise
-        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+      - name: set up nushell
+        uses: hustcer/setup-nu@913f2aa794632a1834b5a6b983bd21832177544b
         with:
-          version: 2026.8.3
-          install_args: aqua:nushell/nushell gh
+          version: ">=0.116.0"
 
       - name: build site
         env:
@@ -40,12 +39,7 @@ jobs:
           GIT_LFS_SKIP_SMUDGE: "1"
           REPOSITORY: ${{ github.repository }}
           SNAPSHOT_BRANCH: snapshots
-        run: |
-          nu scripts/pages.nu clone-sources
-          nu scripts/pages.nu download-generator
-          nu scripts/pages.nu generate
-          nu scripts/pages.nu snapshot
-          nu scripts/pages.nu stage
+        run: nu scripts/pages.nu
 
       - name: upload pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
