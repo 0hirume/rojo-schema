@@ -1,26 +1,14 @@
 [package]
 name = "rojo-schema"
 version = "0.4.0"
-publish = false
-edition = "2021"
-rust-version = "1.97"
+edition = "2024"
 description = "Deterministic JSON Schema compiler for Rojo project and model files"
 homepage = "https://0hirume.github.io/rojo-schema"
 repository = "https://github.com/0hirume/rojo-schema"
 license = "MIT OR Apache-2.0"
 keywords = ["json-schema", "roblox", "rojo"]
 categories = ["config", "development-tools"]
-
-[package.metadata.release]
 publish = false
-
-[lib]
-name = "rojo_schema"
-path = "src/lib.rs"
-
-[[bin]]
-name = "rojo-schema"
-path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
