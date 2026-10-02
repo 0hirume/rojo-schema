@@ -45,17 +45,18 @@ pub struct Artifacts {
 ///
 /// # Errors
 ///
-/// Returns an error when a source is missing, malformed, inconsistent with the
-/// pinned reflection stack, or cannot be represented by the schema compiler.
+/// Returns an error when a source is missing, malformed, incompatible with the
+/// reflection types, or cannot be represented by the schema compiler.
 pub fn generate(config: &Config) -> Result<Artifacts> {
     let rojo = source::load_rojo(&config.rojo)?;
     let docs = docs::load(&config.docs)?;
     let tracker = tracker::load(&config.tracker)?;
     let docs_source = source::docs_source(&config.docs, &docs.studio_version)?;
-    let reflection_source = source::reflection_source(&config.rojo)?;
+    let reflection = source::load_reflection(&config.rojo)?;
+    let database = reflection.database()?;
     let tracker_source = source::tracker_source(&config.tracker)?;
-    let formats = format::values()?;
-    let api = api::build(&docs, &tracker, &formats.variants);
+    let formats = format::values(&database)?;
+    let api = api::build(&docs, &tracker, &database, &formats.variants);
     let schemas = schema::build(&api, &rojo.source.version, &rojo.grammar, &formats)?;
     let project_id = schemas.project["$id"]
         .as_str()
@@ -94,7 +95,7 @@ pub fn generate(config: &Config) -> Result<Artifacts> {
     let sources = BTreeMap::from([
         ("clientTracker".to_owned(), tracker_source),
         ("creatorDocs".to_owned(), docs_source),
-        ("reflection".to_owned(), reflection_source),
+        ("reflection".to_owned(), reflection.source),
         ("rojo".to_owned(), rojo.source),
     ]);
     let limitations = vec![
@@ -237,6 +238,8 @@ pub fn source_versions(config: &Config) -> Result<BTreeMap<String, SourceInfo>> 
     let rojo = source::load_rojo(&config.rojo)?;
     let docs = docs::load(&config.docs)?;
     tracker::load(&config.tracker)?;
+    let reflection = source::load_reflection(&config.rojo)?;
+    reflection.database()?;
     Ok(BTreeMap::from([
         (
             "clientTracker".to_owned(),
@@ -246,10 +249,7 @@ pub fn source_versions(config: &Config) -> Result<BTreeMap<String, SourceInfo>> 
             "creatorDocs".to_owned(),
             source::docs_source(&config.docs, &docs.studio_version)?,
         ),
-        (
-            "reflection".to_owned(),
-            source::reflection_source(&config.rojo)?,
-        ),
+        ("reflection".to_owned(), reflection.source),
         ("rojo".to_owned(), rojo.source),
     ]))
 }

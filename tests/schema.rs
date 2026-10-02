@@ -152,6 +152,31 @@ fn schema_is_source_derived_and_class_aware() {
     );
 }
 
+#[test]
+fn reflection_provenance_matches_rojo() {
+    let manifest = artifact("manifest.json");
+    let lock: toml::Value =
+        toml::from_str(&fs::read_to_string(rojo().join("Cargo.lock")).unwrap()).unwrap();
+    let reflection = lock["package"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|package| package["name"].as_str() == Some("rbx_reflection_database"))
+        .unwrap();
+    assert_eq!(
+        manifest["sources"]["reflection"]["version"],
+        reflection["version"].as_str().unwrap()
+    );
+    assert_eq!(
+        manifest["sources"]["reflection"]["sha256"],
+        reflection["checksum"].as_str().unwrap()
+    );
+    assert_eq!(
+        manifest["sources"],
+        serde_json::to_value(rojo_schema::source_versions(&config()).unwrap()).unwrap()
+    );
+}
+
 fn assert_project_dispatch(definitions: &serde_json::Map<String, Value>, coverage: &Value) {
     assert_eq!(
         definitions["node/Part"]["properties"]["$className"]["const"],
