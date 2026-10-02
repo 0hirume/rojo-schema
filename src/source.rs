@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::{ensure, Context, Result};
 use cargo_metadata::{Metadata, MetadataCommand, Package};
+use rbx_reflection::ReflectionDatabase;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
@@ -21,6 +22,22 @@ const TRACKER_VERSION: &str = "version.txt";
 pub struct Rojo {
     pub source: SourceInfo,
     pub grammar: grammar::Grammar,
+}
+
+pub struct Reflection {
+    pub source: SourceInfo,
+    bytes: Vec<u8>,
+}
+
+impl Reflection {
+    pub fn database(&self) -> Result<ReflectionDatabase<'_>> {
+        rmp_serde::from_slice(&self.bytes).with_context(|| {
+            format!(
+                "decoding Rojo's {REFLECTION_CRATE} {} database with the generator's reflection types",
+                self.source.version
+            )
+        })
+    }
 }
 
 pub fn load_rojo(path: &Path) -> Result<Rojo> {
@@ -109,25 +126,20 @@ pub fn tracker_source(path: &Path) -> Result<SourceInfo> {
     })
 }
 
-pub fn reflection_source(rojo: &Path) -> Result<SourceInfo> {
-    let rojo_metadata = cargo_metadata(&rojo.join("Cargo.toml"), false)?;
-    let rojo_package = package(&rojo_metadata, REFLECTION_CRATE)?;
-    let local_metadata = cargo_metadata(
-        &Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"),
-        false,
-    )?;
-    let local_package = package(&local_metadata, REFLECTION_CRATE)?;
-    ensure!(
-        rojo_package.version == local_package.version,
-        "linked {REFLECTION_CRATE} {} does not match Rojo's resolved {}",
-        local_package.version,
-        rojo_package.version
-    );
+pub fn load_reflection(rojo: &Path) -> Result<Reflection> {
+    let metadata = cargo_metadata(&rojo.join("Cargo.toml"), false)?;
+    let package = package(&metadata, REFLECTION_CRATE)?;
+    let database = package
+        .manifest_path
+        .parent()
+        .context("reflection package manifest has no parent")?
+        .join("database.msgpack");
+    let bytes = fs::read(&database).with_context(|| format!("reading {database}"))?;
 
     let lock = fs::read_to_string(rojo.join("Cargo.lock"))
         .with_context(|| format!("reading {}/Cargo.lock", rojo.display()))?;
     let lock: Lockfile = toml::from_str(&lock).context("parsing Rojo Cargo.lock")?;
-    let version = rojo_package.version.to_string();
+    let version = package.version.to_string();
     let checksum = lock
         .package
         .iter()
@@ -135,16 +147,19 @@ pub fn reflection_source(rojo: &Path) -> Result<SourceInfo> {
         .and_then(|entry| entry.checksum.clone())
         .context("finding the resolved reflection package checksum in Rojo Cargo.lock")?;
 
-    Ok(SourceInfo {
-        repository: repository(
-            local_package
-                .repository
-                .as_deref()
-                .context("linked reflection package has no repository")?,
-        ),
-        version,
-        sha256: checksum,
-        revision: None,
+    Ok(Reflection {
+        source: SourceInfo {
+            repository: repository(
+                package
+                    .repository
+                    .as_deref()
+                    .context("resolved reflection package has no repository")?,
+            ),
+            version,
+            sha256: checksum,
+            revision: None,
+        },
+        bytes,
     })
 }
 
@@ -303,4 +318,70 @@ fn repository(value: &str) -> String {
 
 fn slash(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use rbx_reflection::{ClassDescriptor, DataType, EnumDescriptor, PropertyDescriptor};
+    use rbx_types::VariantType;
+    use serde_json::json;
+
+    use super::*;
+    use crate::{api, format, tracker};
+
+    #[test]
+    fn newer_database_drives_api_and_formats() {
+        let mut database = ReflectionDatabase::new();
+        database.version = [0, 999, 0, 0];
+        let mut class = ClassDescriptor::new("Future");
+        class.properties.insert(
+            "Enabled",
+            PropertyDescriptor::new("Enabled", DataType::Value(VariantType::Bool)),
+        );
+        class.default_properties.insert("Enabled", true.into());
+        database.classes.insert("Future", class);
+        let mut enumeration = EnumDescriptor::new("Future");
+        enumeration.items.insert("Enabled", 42);
+        database.enums.insert("Future", enumeration);
+
+        let reflection = Reflection {
+            source: SourceInfo {
+                repository: "https://github.com/rojo-rbx/rbx-dom".to_owned(),
+                version: "99.0.0+roblox-999".to_owned(),
+                sha256: String::new(),
+                revision: None,
+            },
+            bytes: rmp_serde::to_vec(&database).unwrap(),
+        };
+        let database = reflection.database().unwrap();
+        let formats = format::values(&database).unwrap();
+        assert_eq!(
+            formats.definitions["value/Bool"]["properties"]["Bool"]["type"],
+            "boolean"
+        );
+        let api = api::build(
+            &docs::Catalog::default(),
+            &tracker::Catalog {
+                classes: BTreeMap::new(),
+                enums: BTreeMap::new(),
+            },
+            &database,
+            &formats.variants,
+        );
+        assert_eq!(api.reflection_version, "0.999.0.0");
+        assert_eq!(api.classes.len(), 1);
+        assert_eq!(
+            api.classes["Future"].properties["Enabled"].default,
+            Some(json!({"Bool": true}))
+        );
+        assert_eq!(api.enums["Future"].items["Enabled"].value, 42);
+
+        let invalid = Reflection {
+            bytes: vec![0xc1],
+            ..reflection
+        };
+        assert!(invalid.database().is_err());
+    }
 }

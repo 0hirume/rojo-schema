@@ -14,14 +14,19 @@ use crate::{
     tracker,
 };
 
-pub fn build(docs: &Catalog, tracker: &tracker::Catalog, variants: &BTreeSet<String>) -> Api {
-    Builder::new(docs, tracker, variants).build()
+pub fn build(
+    docs: &Catalog,
+    tracker: &tracker::Catalog,
+    database: &ReflectionDatabase<'_>,
+    variants: &BTreeSet<String>,
+) -> Api {
+    Builder::new(docs, tracker, database, variants).build()
 }
 
 struct Builder<'a> {
     docs: &'a Catalog,
     tracker: &'a tracker::Catalog,
-    database: &'static ReflectionDatabase<'static>,
+    database: &'a ReflectionDatabase<'a>,
     supported: BTreeSet<String>,
     classes: BTreeMap<String, Class>,
     enums: BTreeMap<String, Enum>,
@@ -32,8 +37,12 @@ struct Builder<'a> {
 }
 
 impl<'a> Builder<'a> {
-    fn new(docs: &'a Catalog, tracker: &'a tracker::Catalog, variants: &BTreeSet<String>) -> Self {
-        let database = rbx_reflection_database::get_bundled();
+    fn new(
+        docs: &'a Catalog,
+        tracker: &'a tracker::Catalog,
+        database: &'a ReflectionDatabase<'a>,
+        variants: &BTreeSet<String>,
+    ) -> Self {
         Self {
             docs,
             tracker,

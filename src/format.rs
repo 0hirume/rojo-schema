@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{anyhow, ensure, Context, Result};
+use rbx_reflection::ReflectionDatabase;
 use rbx_types::VariantType;
 use serde_json::{json, Map, Value};
 use serde_reflection::{
@@ -14,7 +15,7 @@ pub struct Formats {
     pub definitions: Map<String, Value>,
 }
 
-pub fn values() -> Result<Formats> {
+pub fn values(database: &ReflectionDatabase<'_>) -> Result<Formats> {
     let mut tracer = Tracer::new(
         TracerConfig::default()
             .is_human_readable(true)
@@ -31,7 +32,6 @@ pub fn values() -> Result<Formats> {
 
     let mut samples = Samples::new();
     let mut root = None;
-    let database = rbx_reflection_database::get_bundled();
     let mut classes = database.classes.iter().collect::<Vec<_>>();
     classes.sort_by_key(|(name, _)| **name);
     for (_, class) in classes {
@@ -237,7 +237,11 @@ mod tests {
 
     #[test]
     fn traces_reflected_formats() {
-        let formats = values().unwrap();
+        let mut database = ReflectionDatabase::new();
+        let mut class = rbx_reflection::ClassDescriptor::new("Instance");
+        class.default_properties.insert("Enabled", true.into());
+        database.classes.insert("Instance", class);
+        let formats = values(&database).unwrap();
         assert!(!formats.variants.is_empty());
         assert!(formats
             .definitions

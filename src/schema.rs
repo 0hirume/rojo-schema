@@ -49,7 +49,7 @@ pub fn build(
     root.insert(
         "description".to_owned(),
         json!(format!(
-            "Rojo {rojo_version} project file targeting bundled Roblox reflection {} and Creator Docs Studio {}.",
+            "Rojo {rojo_version} project file targeting Roblox reflection {} and Creator Docs Studio {}.",
             api.reflection_version, api.studio_version
         )),
     );
@@ -67,7 +67,7 @@ pub fn build(
         "$id": model_id,
         "title": "Rojo model",
         "description": format!(
-            "Rojo {rojo_version} JSON model file targeting bundled Roblox reflection {} and Creator Docs Studio {}.",
+            "Rojo {rojo_version} JSON model file targeting Roblox reflection {} and Creator Docs Studio {}.",
             api.reflection_version, api.studio_version
         ),
         "$ref": "#/$defs/model~1Any",
