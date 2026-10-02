@@ -1,8 +1,0 @@
-[tools]
-rust = { version = "nightly", profile = "minimal", components = ["rustfmt", "clippy"] }
-"aqua:tombi-toml/tombi" = "latest"
-"aqua:nushell/nushell" = "latest"
-gh = "latest"
-"npm:oxfmt" = "latest"
-"npm:yaml-language-server" = "latest"
-"github:0hirume/breathers" = "latest"
