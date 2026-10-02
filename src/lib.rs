@@ -58,14 +58,17 @@ pub fn generate(config: &Config) -> Result<Artifacts> {
     let formats = format::values(&database)?;
     let api = api::build(&docs, &tracker, &database, &formats.variants);
     let schemas = schema::build(&api, &rojo.source.version, &rojo.grammar, &formats)?;
+
     let project_id = schemas.project["$id"]
         .as_str()
         .context("generated project schema is missing $id")?
         .to_owned();
+
     let model_id = schemas.model["$id"]
         .as_str()
         .context("generated model schema is missing $id")?
         .to_owned();
+
     let project_bytes = pretty(&schemas.project)?;
     let model_bytes = pretty(&schemas.model)?;
 
@@ -74,7 +77,9 @@ pub fn generate(config: &Config) -> Result<Artifacts> {
         .values()
         .map(|class| class.properties.len())
         .sum();
+
     let enum_items = api.enums.values().map(|item| item.items.len()).sum();
+
     let stats = Stats {
         classes: api.classes.len(),
         properties: property_count,
@@ -98,11 +103,13 @@ pub fn generate(config: &Config) -> Result<Artifacts> {
         ("reflection".to_owned(), reflection.source),
         ("rojo".to_owned(), rojo.source),
     ]);
+
     let limitations = vec![
         "The class produced by a filesystem path cannot be selected statically, so path-backed nodes use the reflected property-name set and Rojo's general unresolved-value grammar.".to_owned(),
         "Serializer formats without a reflected default sample are represented conservatively instead of being guessed.".to_owned(),
         "Rojo runtime validation, filesystem access, and glob compilation are outside JSON Schema.".to_owned(),
     ];
+
     let manifest = Manifest {
         generator: format!("rojo-schema {}", env!("CARGO_PKG_VERSION")),
         schema_draft: schema::DRAFT.to_owned(),
@@ -114,14 +121,17 @@ pub fn generate(config: &Config) -> Result<Artifacts> {
     };
 
     let mut classifications = BTreeMap::new();
+
     for item in &api.coverage {
         let key = classification_name(item.classification);
         *classifications.entry(key).or_insert(0) += 1;
     }
+
     let coverage_sources = sources
         .iter()
         .map(|(name, source)| (name.clone(), source.version.clone()))
         .collect();
+
     let coverage = Coverage {
         sources: coverage_sources,
         counts: stats.clone(),
@@ -158,6 +168,7 @@ pub fn write(config: &Config, artifacts: &Artifacts) -> Result<()> {
     write_file(&config.model, &artifacts.model)?;
     write_file(&config.manifest, &artifacts.manifest)?;
     write_file(&config.coverage, &artifacts.coverage)?;
+
     Ok(())
 }
 
@@ -170,6 +181,7 @@ pub fn write(config: &Config, artifacts: &Artifacts) -> Result<()> {
 pub fn check(config: &Config) -> Result<Artifacts> {
     let first = generate(config)?;
     let second = generate(config)?;
+
     if first.project != second.project
         || first.model != second.model
         || first.manifest != second.manifest
@@ -184,7 +196,9 @@ pub fn check(config: &Config) -> Result<Artifacts> {
         (&config.manifest, &first.manifest, "manifest"),
         (&config.coverage, &first.coverage, "coverage"),
     ];
+
     let mut stale = Vec::new();
+
     for (path, bytes, name) in expected {
         match fs::read(path) {
             Ok(committed) if committed == *bytes => {}
@@ -192,9 +206,11 @@ pub fn check(config: &Config) -> Result<Artifacts> {
             Err(error) => stale.push(format!("{name} missing: {} ({error})", path.display())),
         }
     }
+
     if !stale.is_empty() {
         bail!("generated artifacts are stale:\n{}", stale.join("\n"));
     }
+
     Ok(first)
 }
 
@@ -206,12 +222,14 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
         fs::create_dir_all(parent)
             .with_context(|| format!("creating output directory {}", parent.display()))?;
     }
+
     fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))
 }
 
 fn pretty(value: &impl Serialize) -> Result<Vec<u8>> {
     let mut bytes = serde_json::to_vec_pretty(value)?;
     bytes.push(b'\n');
+
     Ok(bytes)
 }
 
@@ -240,6 +258,7 @@ pub fn source_versions(config: &Config) -> Result<BTreeMap<String, SourceInfo>> 
     tracker::load(&config.tracker)?;
     let reflection = source::load_reflection(&config.rojo)?;
     reflection.database()?;
+
     Ok(BTreeMap::from([
         (
             "clientTracker".to_owned(),

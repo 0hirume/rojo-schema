@@ -44,16 +44,19 @@ pub fn load_rojo(path: &Path) -> Result<Rojo> {
     let manifest = path.join("Cargo.toml");
     let lockfile = path.join("Cargo.lock");
     let source = path.join("src");
+
     ensure!(
         manifest.is_file(),
         "Rojo manifest not found at {}",
         manifest.display()
     );
+
     ensure!(
         lockfile.is_file(),
         "Rojo lockfile not found at {}",
         lockfile.display()
     );
+
     ensure!(
         source.is_dir(),
         "Rojo source not found at {}",
@@ -61,9 +64,11 @@ pub fn load_rojo(path: &Path) -> Result<Rojo> {
     );
 
     let metadata = cargo_metadata(&manifest, true)?;
+
     let package = metadata
         .root_package()
         .context("Rojo manifest has no root package")?;
+
     let grammar = grammar::load(&source)?;
     let mut files = rust_files(path, &source)?;
     files.extend([PathBuf::from("Cargo.toml"), PathBuf::from("Cargo.lock")]);
@@ -87,10 +92,13 @@ pub fn load_rojo(path: &Path) -> Result<Rojo> {
 pub fn docs_source(path: &Path, studio_version: &str) -> Result<SourceInfo> {
     let root = docs::engine_root(path)?;
     let files = collect_files(&root)?;
+
     let package = fs::read_to_string(path.join("package.json"))
         .with_context(|| format!("reading {}/package.json", path.display()))?;
+
     let package: NpmPackage = serde_json::from_str(&package)
         .with_context(|| format!("parsing {}/package.json", path.display()))?;
+
     Ok(SourceInfo {
         repository: repository(&package.repository.url),
         version: studio_version.to_owned(),
@@ -102,6 +110,7 @@ pub fn docs_source(path: &Path, studio_version: &str) -> Result<SourceInfo> {
 pub fn tracker_source(path: &Path) -> Result<SourceInfo> {
     let root = crate::tracker::root(path)?;
     let version_path = root.join(TRACKER_VERSION);
+
     let version = fs::read_to_string(&version_path)
         .with_context(|| format!("reading {}", version_path.display()))?
         .lines()
@@ -109,6 +118,7 @@ pub fn tracker_source(path: &Path) -> Result<SourceInfo> {
         .unwrap_or_default()
         .trim()
         .to_owned();
+
     ensure!(
         !version.is_empty(),
         "{} has no Studio version",
@@ -129,17 +139,21 @@ pub fn tracker_source(path: &Path) -> Result<SourceInfo> {
 pub fn load_reflection(rojo: &Path) -> Result<Reflection> {
     let metadata = cargo_metadata(&rojo.join("Cargo.toml"), false)?;
     let package = package(&metadata, REFLECTION_CRATE)?;
+
     let database = package
         .manifest_path
         .parent()
         .context("reflection package manifest has no parent")?
         .join("database.msgpack");
+
     let bytes = fs::read(&database).with_context(|| format!("reading {database}"))?;
 
     let lock = fs::read_to_string(rojo.join("Cargo.lock"))
         .with_context(|| format!("reading {}/Cargo.lock", rojo.display()))?;
+
     let lock: Lockfile = toml::from_str(&lock).context("parsing Rojo Cargo.lock")?;
     let version = package.version.to_string();
+
     let checksum = lock
         .package
         .iter()
@@ -165,12 +179,15 @@ pub fn load_reflection(rojo: &Path) -> Result<Reflection> {
 
 fn cargo_metadata(manifest: &Path, no_dependencies: bool) -> Result<Metadata> {
     let mut command = MetadataCommand::new();
+
     command
         .manifest_path(manifest)
         .other_options(vec!["--locked".to_owned()]);
+
     if no_dependencies {
         command.no_deps();
     }
+
     command
         .exec()
         .with_context(|| format!("reading Cargo metadata for {}", manifest.display()))
@@ -182,11 +199,13 @@ fn package<'a>(metadata: &'a Metadata, name: &str) -> Result<&'a Package> {
         .iter()
         .filter(|package| package.name.as_str() == name)
         .collect::<Vec<_>>();
+
     ensure!(
         matches.len() == 1,
         "expected one resolved {name} package, found {}",
         matches.len()
     );
+
     Ok(matches[0])
 }
 
@@ -232,7 +251,9 @@ fn collect_files(root: &Path) -> Result<Vec<PathBuf>> {
             .with_context(|| format!("reading {}", current.display()))?
             .map(|entry| entry.map(|entry| entry.path()))
             .collect::<std::io::Result<Vec<_>>>()?;
+
         entries.sort();
+
         for path in entries {
             if path.is_dir() {
                 visit(root, &path, output)?;
@@ -244,11 +265,13 @@ fn collect_files(root: &Path) -> Result<Vec<PathBuf>> {
                 );
             }
         }
+
         Ok(())
     }
 
     let mut files = Vec::new();
     visit(root, root, &mut files)?;
+
     Ok(files)
 }
 
@@ -256,59 +279,74 @@ fn hash_paths(root: &Path, paths: impl IntoIterator<Item = PathBuf>) -> Result<S
     let mut paths = paths.into_iter().collect::<Vec<_>>();
     paths.sort();
     let mut hasher = Sha256::new();
+
     for relative in paths {
         let bytes = fs::read(root.join(&relative))
             .with_context(|| format!("reading {} for hashing", root.join(&relative).display()))?;
+
         hasher.update(slash(&relative));
         hasher.update([0]);
         hasher.update(u64::try_from(bytes.len())?.to_le_bytes());
         hasher.update(bytes);
     }
+
     let digest = hasher.finalize();
     let mut output = String::with_capacity(digest.len() * 2);
+
     for byte in digest {
         output.push(char::from(HEX_DIGITS[usize::from(byte >> 4)]));
         output.push(char::from(HEX_DIGITS[usize::from(byte & 0x0f)]));
     }
+
     Ok(output)
 }
 
 fn source_revision(path: &Path, revision_file: &str) -> Option<String> {
     if let Ok(revision) = fs::read_to_string(path.join(revision_file)) {
         let revision = revision.trim();
+
         if !revision.is_empty() {
             return Some(revision.to_owned());
         }
     }
+
     git_revision(path)
 }
 
 fn git_revision(path: &Path) -> Option<String> {
     let mut current = Some(path);
+
     while let Some(directory) = current {
         let git = directory.join(".git");
+
         if git.is_dir() {
             return read_head(&git);
         }
+
         if git.is_file() {
             let pointer = fs::read_to_string(&git).ok()?;
             let target = pointer.trim().strip_prefix("gitdir: ")?;
             let target = directory.join(target);
+
             return read_head(&target);
         }
+
         current = directory.parent();
     }
+
     None
 }
 
 fn read_head(git: &Path) -> Option<String> {
     let head = fs::read_to_string(git.join("HEAD")).ok()?;
     let head = head.trim();
+
     if let Some(reference) = head.strip_prefix("ref: ") {
         return fs::read_to_string(git.join(reference))
             .ok()
             .map(|text| text.trim().to_owned());
     }
+
     Some(head.to_owned())
 }
 
@@ -336,10 +374,12 @@ mod tests {
         let mut database = ReflectionDatabase::new();
         database.version = [0, 999, 0, 0];
         let mut class = ClassDescriptor::new("Future");
+
         class.properties.insert(
             "Enabled",
             PropertyDescriptor::new("Enabled", DataType::Value(VariantType::Bool)),
         );
+
         class.default_properties.insert("Enabled", true.into());
         database.classes.insert("Future", class);
         let mut enumeration = EnumDescriptor::new("Future");
@@ -355,12 +395,15 @@ mod tests {
             },
             bytes: rmp_serde::to_vec(&database).unwrap(),
         };
+
         let database = reflection.database().unwrap();
         let formats = format::values(&database).unwrap();
+
         assert_eq!(
             formats.definitions["value/Bool"]["properties"]["Bool"]["type"],
             "boolean"
         );
+
         let api = api::build(
             &docs::Catalog::default(),
             &tracker::Catalog {
@@ -370,18 +413,22 @@ mod tests {
             &database,
             &formats.variants,
         );
+
         assert_eq!(api.reflection_version, "0.999.0.0");
         assert_eq!(api.classes.len(), 1);
+
         assert_eq!(
             api.classes["Future"].properties["Enabled"].default,
             Some(json!({"Bool": true}))
         );
+
         assert_eq!(api.enums["Future"].items["Enabled"].value, 42);
 
         let invalid = Reflection {
             bytes: vec![0xc1],
             ..reflection
         };
+
         assert!(invalid.database().is_err());
     }
 }

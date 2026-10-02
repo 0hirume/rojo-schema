@@ -4,6 +4,7 @@ use anyhow::{anyhow, ensure, Context, Result};
 use rbx_reflection::ReflectionDatabase;
 use rbx_types::VariantType;
 use serde_json::{json, Map, Value};
+
 use serde_reflection::{
     ContainerFormat, Format, Named, Registry, Samples, Tracer, TracerConfig, VariantFormat,
 };
@@ -22,9 +23,11 @@ pub fn values(database: &ReflectionDatabase<'_>) -> Result<Formats> {
             .default_borrowed_str_value("")
             .default_string_value(String::new()),
     );
+
     let (_, variant_types) = tracer
         .trace_simple_type::<VariantType>()
         .map_err(|error| anyhow!(error.to_string()))?;
+
     let variants = variant_types
         .iter()
         .map(|variant| format!("{variant:?}"))
@@ -34,13 +37,16 @@ pub fn values(database: &ReflectionDatabase<'_>) -> Result<Formats> {
     let mut root = None;
     let mut classes = database.classes.iter().collect::<Vec<_>>();
     classes.sort_by_key(|(name, _)| **name);
+
     for (_, class) in classes {
         let mut properties = class.default_properties.iter().collect::<Vec<_>>();
         properties.sort_by_key(|(name, _)| **name);
+
         for (_, value) in properties {
             let (format, _) = tracer
                 .trace_value(&mut samples, value)
                 .map_err(|error| anyhow!(error.to_string()))?;
+
             if let Some(previous) = &root {
                 ensure!(
                     previous == &format,
@@ -56,8 +62,10 @@ pub fn values(database: &ReflectionDatabase<'_>) -> Result<Formats> {
         Format::TypeName(name) => name,
         other => anyhow::bail!("reflected value root is not a named container: {other:?}"),
     };
+
     let registry = tracer.registry_unchecked();
     let definitions = definitions(&registry, &root, &variants)?;
+
     Ok(Formats {
         root,
         enum_variant: format!("{:?}", VariantType::Enum),
@@ -72,6 +80,7 @@ fn definitions(
     variants: &BTreeSet<String>,
 ) -> Result<Map<String, Value>> {
     let mut definitions = Map::new();
+
     for (name, format) in registry {
         definitions.insert(serde_key(name), container(format));
     }
@@ -79,19 +88,24 @@ fn definitions(
     let root_format = registry
         .get(root)
         .with_context(|| format!("missing traced root container {root}"))?;
+
     let ContainerFormat::Enum(traced) = root_format else {
         anyhow::bail!("traced root container {root} is not an enum");
     };
+
     let traced = traced
         .values()
         .map(|variant| (variant.name.as_str(), &variant.value))
         .collect::<BTreeMap<_, _>>();
+
     for name in variants {
         let schema = traced
             .get(name.as_str())
             .map_or_else(|| tagged(name, &json!({})), |format| variant(name, format));
+
         definitions.insert(value_key(name), schema);
     }
+
     definitions.insert(
         "value/Any".to_owned(),
         json!({
@@ -101,7 +115,9 @@ fn definitions(
                 .collect::<Vec<_>>()
         }),
     );
+
     definitions.insert(serde_key(root), reference("value/Any"));
+
     Ok(definitions)
 }
 
@@ -111,11 +127,13 @@ fn container(format: &ContainerFormat) -> Value {
         ContainerFormat::NewTypeStruct(format) => schema(format),
         ContainerFormat::TupleStruct(formats) => tuple(formats),
         ContainerFormat::Struct(fields) => structure(fields),
+
         ContainerFormat::Enum(variants) => {
             let options = variants
                 .values()
                 .map(|format| variant(&format.name, &format.value))
                 .collect::<Vec<_>>();
+
             choice(options)
         }
     }
@@ -140,18 +158,23 @@ fn schema(format: &Format) -> Value {
         Format::F32 | Format::F64 => json!({ "type": "number" }),
         Format::Char => json!({ "type": "string", "minLength": 1, "maxLength": 1 }),
         Format::Str => json!({ "type": "string" }),
+
         Format::Bytes => json!({
             "type": "array",
             "items": integer(u8::MIN, u8::MAX)
         }),
+
         Format::Option(inner) => choice(vec![schema(inner), json!({ "type": "null" })]),
         Format::Seq(inner) => json!({ "type": "array", "items": schema(inner) }),
+
         Format::Map { key, value } => json!({
             "type": "object",
             "propertyNames": schema(key),
             "additionalProperties": schema(value)
         }),
+
         Format::Tuple(formats) => tuple(formats),
+
         Format::TupleArray { content, size } => json!({
             "type": "array",
             "items": schema(content),
@@ -167,6 +190,7 @@ fn variant(name: &str, format: &VariantFormat) -> Value {
             .borrow()
             .as_ref()
             .map_or_else(|| tagged(name, &json!({})), |format| variant(name, format)),
+
         VariantFormat::Unit => json!({ "const": name }),
         VariantFormat::NewType(format) => tagged(name, &schema(format)),
         VariantFormat::Tuple(formats) => tagged(name, &tuple(formats)),
@@ -179,7 +203,9 @@ fn structure(fields: &[Named<Format>]) -> Value {
         .iter()
         .map(|field| (field.name.clone(), schema(&field.value)))
         .collect::<Map<_, _>>();
+
     let required = fields.iter().map(|field| &field.name).collect::<Vec<_>>();
+
     json!({
         "type": "object",
         "properties": properties,
@@ -243,9 +269,11 @@ mod tests {
         database.classes.insert("Instance", class);
         let formats = values(&database).unwrap();
         assert!(!formats.variants.is_empty());
+
         assert!(formats
             .definitions
             .contains_key(&format!("serde/{}", formats.root)));
+
         assert!(formats
             .variants
             .iter()

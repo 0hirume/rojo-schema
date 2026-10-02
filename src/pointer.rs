@@ -5,6 +5,7 @@ const HEX: &[u8; 16] = b"0123456789ABCDEF";
 pub fn path(key: &str) -> String {
     let pointer = key.replace('~', "~0").replace('/', "~1");
     let mut encoded = String::with_capacity(pointer.len());
+
     for byte in pointer.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
             encoded.push(char::from(byte));
@@ -14,6 +15,7 @@ pub fn path(key: &str) -> String {
             encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
         }
     }
+
     format!("#/$defs/{encoded}")
 }
 
