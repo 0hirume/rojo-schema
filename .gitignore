@@ -1,3 +1,2 @@
-/target/
-/dist/
-/mise.local.toml
+target/
+dist/
