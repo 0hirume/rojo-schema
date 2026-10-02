@@ -59,6 +59,7 @@ def clone-store [store: string]: nothing -> nothing {
     checked gh auth setup-git
 
     let remote = $"https://github.com/($env.REPOSITORY).git"
+
     let branch = (
         run-external git ls-remote "--exit-code" "--heads" $remote $env.SNAPSHOT_BRANCH
         | complete
@@ -92,11 +93,14 @@ def "main clone-sources" []: nothing -> nothing {
     try {
         let tracker = [sources client-tracker] | path join
         mkdir $tracker
+
         let revision = (
             captured gh api $"repos/($env.TRACKER_REPOSITORY)/commits/roblox" "--jq" .sha
             | str trim
         )
+
         $revision | save --force ($tracker | path join .revision)
+
         for file in [Full-API-Dump.json version.txt] {
             (captured
                 gh
@@ -120,6 +124,7 @@ def "main clone-sources" []: nothing -> nothing {
         "--filter=blob:none"
         "--sparse"
     )
+
     (checked
         git
         "-C"
@@ -132,15 +137,27 @@ def "main clone-sources" []: nothing -> nothing {
 
 def "main download-generator" []: nothing -> nothing {
     let archive = "rojo-schema-x86_64-unknown-linux-gnu.tar.gz"
-    checked gh release download "--repo" $env.REPOSITORY "--pattern" $"($archive)*"
+
+    (checked
+        gh
+        release
+        download
+        "--repo"
+        $env.REPOSITORY
+        "--pattern"
+        $"($archive)*"
+    )
+
     install-generator $archive
 }
 
 def install-generator [archive: string]: nothing -> nothing {
     checked sha256sum "--check" $"($archive).sha256"
+
     try {
         mkdir bin
     } catch {|error| fail $error.msg }
+
     checked tar "-xzf" $archive "-C" bin
     checked chmod +x bin/rojo-schema
 }
@@ -150,11 +167,29 @@ def "main install-generator" []: nothing -> nothing {
 }
 
 def "main generate" []: nothing -> nothing {
-    checked bin/rojo-schema generate "--rojo" sources/rojo "--docs" sources/creator-docs "--tracker" sources/client-tracker
+    (checked
+        bin/rojo-schema
+        generate
+        "--rojo"
+        sources/rojo
+        "--docs"
+        sources/creator-docs
+        "--tracker"
+        sources/client-tracker
+    )
 }
 
 def "main check" []: nothing -> nothing {
-    checked bin/rojo-schema check "--rojo" sources/rojo "--docs" sources/creator-docs "--tracker" sources/client-tracker
+    (checked
+        bin/rojo-schema
+        check
+        "--rojo"
+        sources/rojo
+        "--docs"
+        sources/creator-docs
+        "--tracker"
+        sources/client-tracker
+    )
 }
 
 def "main snapshot" []: nothing -> nothing {
@@ -168,7 +203,9 @@ def "main snapshot" []: nothing -> nothing {
             | str join (char nul)
             | hash sha256
         )
+
         let index_path = [$store index.json] | path join
+
         let index = if ($index_path | path exists) {
             open $index_path
         } else {
@@ -177,6 +214,7 @@ def "main snapshot" []: nothing -> nothing {
                 snapshots: []
             }
         }
+
         let previous = $index | get --optional latest.sha256
 
         if $previous == $hash {
@@ -201,13 +239,16 @@ def "main snapshot" []: nothing -> nothing {
                 | insert sha256 $hash
                 | insert artifacts $ARTIFACTS
             )
+
             let snapshots = $index | get --optional snapshots | default []
+
             {
                 latest: $entry
                 snapshots: ($snapshots | prepend $entry)
             } | to json --indent 2 | save --force $index_path
 
             checked git "-C" $store config user.name "github-actions[bot]"
+
             (checked
                 git
                 "-C"
@@ -216,8 +257,10 @@ def "main snapshot" []: nothing -> nothing {
                 user.email
                 "41898282+github-actions[bot]@users.noreply.github.com"
             )
+
             checked git "-C" $store add "--all"
             checked git "-C" $store commit "-m" $"snapshot: ($id)"
+
             (checked
                 git
                 "-C"

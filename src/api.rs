@@ -65,12 +65,14 @@ impl<'a> Builder<'a> {
         add_non_projectable_docs(self.docs, &mut self.coverage);
         self.add_tracker_coverage();
         self.add_variant_coverage();
+
         self.finish()
     }
 
     fn add_classes(&mut self) {
         let mut classes = self.database.classes.iter().collect::<Vec<_>>();
         classes.sort_by_key(|(name, _)| **name);
+
         for (name, descriptor) in classes {
             self.add_class(name, descriptor);
         }
@@ -78,6 +80,7 @@ impl<'a> Builder<'a> {
 
     fn add_class(&mut self, name: &str, descriptor: &ClassDescriptor<'_>) {
         let doc = self.docs.classes.get(name);
+
         let class_classification = match doc {
             Some(doc)
                 if doc.kind != "class"
@@ -93,11 +96,14 @@ impl<'a> Builder<'a> {
                         doc.inherits.first().map_or("<root>", String::as_str)
                     ),
                 });
+
                 Classification::MetadataConflict
             }
+
             Some(_) => Classification::Matched,
             None => Classification::ReflectionOnly,
         };
+
         self.coverage.push(item(
             "reflection+api",
             "class",
@@ -109,12 +115,15 @@ impl<'a> Builder<'a> {
         ));
 
         let properties = self.properties(name, descriptor, doc);
+
         let mut tags = descriptor
             .tags
             .iter()
             .map(|tag| format!("{tag:?}"))
             .collect::<Vec<_>>();
+
         tags.sort();
+
         self.classes.insert(
             name.to_owned(),
             Class {
@@ -139,23 +148,31 @@ impl<'a> Builder<'a> {
         let mut properties = BTreeMap::new();
         let mut descriptors = descriptor.properties.iter().collect::<Vec<_>>();
         descriptors.sort_by_key(|(name, _)| **name);
+
         for (property_name, property_descriptor) in descriptors {
             let doc_property = doc.and_then(|doc| doc.member("properties", property_name));
+
             let (kind, serialization, alias_for, migration_targets) =
                 property_kind(&property_descriptor.kind);
+
             let data_type = match &property_descriptor.data_type {
                 DataType::Enum(name) => PropertyType::Enum((*name).to_owned()),
+
                 DataType::Value(variant) => {
                     let name = format!("{variant:?}");
                     self.variants.insert(name.clone());
+
                     PropertyType::Value(name)
                 }
+
                 _ => PropertyType::Value("<unknown>".to_owned()),
             };
+
             let supported_type = match &data_type {
                 PropertyType::Enum(enum_name) => {
                     self.database.enums.contains_key(enum_name.as_str())
                 }
+
                 PropertyType::Value(variant) => self.supported.contains(variant.as_str()),
             };
 
@@ -170,11 +187,13 @@ impl<'a> Builder<'a> {
                 },
                 &mut self.diagnostics,
             );
+
             let schema_ref = if supported_type {
                 Some(definition_ref(&["property", class_name, property_name]))
             } else {
                 None
             };
+
             self.coverage.push(item(
                 "reflection+api",
                 "property",
@@ -190,7 +209,9 @@ impl<'a> Builder<'a> {
                 .iter()
                 .map(|tag| format!("{tag:?}"))
                 .collect::<Vec<_>>();
+
             tags.sort();
+
             properties.insert(
                 (*property_name).to_owned(),
                 Property {
@@ -222,12 +243,14 @@ impl<'a> Builder<'a> {
                 },
             );
         }
+
         properties
     }
 
     fn add_enums(&mut self) {
         let mut enums = self.database.enums.iter().collect::<Vec<_>>();
         enums.sort_by_key(|(name, _)| **name);
+
         for (name, descriptor) in enums {
             self.add_enum(name, descriptor);
         }
@@ -235,6 +258,7 @@ impl<'a> Builder<'a> {
 
     fn add_enum(&mut self, name: &str, descriptor: &EnumDescriptor<'_>) {
         let doc = self.docs.enums.get(name);
+
         let enum_classification = match doc {
             Some(doc) if doc.kind != "enum" => {
                 self.diagnostics.push(Diagnostic {
@@ -243,11 +267,14 @@ impl<'a> Builder<'a> {
                     reflection: "enum".to_owned(),
                     api: doc.kind.clone(),
                 });
+
                 Classification::MetadataConflict
             }
+
             Some(_) => Classification::Matched,
             None => Classification::ReflectionOnly,
         };
+
         self.coverage.push(item(
             "reflection+api",
             "enum",
@@ -257,16 +284,20 @@ impl<'a> Builder<'a> {
             "enum-backed property values",
             Some(definition_ref(&["enum", name])),
         ));
+
         let mut items = BTreeMap::new();
         let mut reflection_items = descriptor.items.iter().collect::<Vec<_>>();
         reflection_items.sort_by_key(|(name, _)| **name);
+
         for (item_name, value) in reflection_items {
             let doc_item = doc.and_then(|doc| doc.member("items", item_name));
+
             let classification = match doc_item {
                 Some(item) if item.value == Some(*value) => Classification::Matched,
                 Some(_) => Classification::MetadataConflict,
                 None => Classification::ReflectionOnly,
             };
+
             if classification == Classification::MetadataConflict {
                 self.diagnostics.push(Diagnostic {
                     name: format!("{name}.{item_name}"),
@@ -277,6 +308,7 @@ impl<'a> Builder<'a> {
                         .map_or_else(|| "missing".to_owned(), |value| value.to_string()),
                 });
             }
+
             self.coverage.push(item(
                 "reflection+api",
                 "enum-item",
@@ -286,6 +318,7 @@ impl<'a> Builder<'a> {
                 "enumerated property value",
                 Some(definition_ref(&["enum", name])),
             ));
+
             items.insert(
                 (*item_name).to_owned(),
                 EnumItem {
@@ -297,6 +330,7 @@ impl<'a> Builder<'a> {
                 },
             );
         }
+
         self.enums.insert(
             name.to_owned(),
             Enum {
@@ -313,12 +347,14 @@ impl<'a> Builder<'a> {
     fn add_tracker_coverage(&mut self) {
         let tracker = self.tracker;
         let class_names = tracker.classes.keys().cloned().collect::<Vec<_>>();
+
         for name in class_names {
             let class = &tracker.classes[&name];
             self.add_tracker_class(&name, class);
         }
 
         let enum_names = tracker.enums.keys().cloned().collect::<Vec<_>>();
+
         for name in enum_names {
             let enumeration = &tracker.enums[&name];
             self.add_tracker_enum(&name, enumeration);
@@ -328,6 +364,7 @@ impl<'a> Builder<'a> {
     fn add_tracker_class(&mut self, name: &str, class: &tracker::Class) {
         let reflected = self.classes.contains_key(name);
         self.client_tracker.classes += 1;
+
         self.coverage.push(item(
             "clientTracker",
             "class",
@@ -353,11 +390,13 @@ impl<'a> Builder<'a> {
 
     fn add_tracker_member(&mut self, class_name: &str, member: &tracker::Member) {
         let kind = tracker_member_kind(&member.kind);
+
         let reflected_property = kind == "property"
             && self
                 .classes
                 .get(class_name)
                 .is_some_and(|class| class.properties.contains_key(&member.name));
+
         let classification = if kind == "property" && reflected_property {
             Classification::Matched
         } else if kind == "property" {
@@ -365,6 +404,7 @@ impl<'a> Builder<'a> {
         } else {
             Classification::NonProjectable
         };
+
         self.coverage.push(with_source_type(
             item(
                 "clientTracker",
@@ -383,6 +423,7 @@ impl<'a> Builder<'a> {
             ),
             tracker_type(member),
         ));
+
         match kind {
             "property" => self.client_tracker.properties += 1,
             "method" => self.client_tracker.methods += 1,
@@ -395,6 +436,7 @@ impl<'a> Builder<'a> {
     fn add_tracker_enum(&mut self, name: &str, enumeration: &tracker::Enum) {
         let reflected = self.enums.contains_key(name);
         self.client_tracker.enums += 1;
+
         self.coverage.push(item(
             "clientTracker",
             "enum",
@@ -418,8 +460,10 @@ impl<'a> Builder<'a> {
                 .enums
                 .get(name)
                 .and_then(|enumeration| enumeration.items.get(item_name));
+
             let classification = match reflected_value {
                 Some(reflected) if reflected.value == *value => Classification::Matched,
+
                 Some(reflected) => {
                     self.diagnostics.push(Diagnostic {
                         name: format!("{name}.{item_name}"),
@@ -427,11 +471,15 @@ impl<'a> Builder<'a> {
                         reflection: reflected.value.to_string(),
                         api: value.to_string(),
                     });
+
                     Classification::MetadataConflict
                 }
+
                 None => Classification::ApiOnly,
             };
+
             self.client_tracker.enum_items += 1;
+
             self.coverage.push(item(
                 "clientTracker",
                 "enum-item",
@@ -442,9 +490,11 @@ impl<'a> Builder<'a> {
                     Classification::Matched => {
                         "Client Tracker value matches the reflected enum value"
                     }
+
                     Classification::MetadataConflict => {
                         "reflection enum value takes precedence over Client Tracker"
                     }
+
                     _ => "not present in Rojo's pinned reflection database",
                 },
                 None,
@@ -455,6 +505,7 @@ impl<'a> Builder<'a> {
     fn add_variant_coverage(&mut self) {
         for variant in &self.variants {
             let supported = self.supported.contains(variant.as_str());
+
             self.coverage.push(item(
                 "reflection",
                 "variant-type",
@@ -479,8 +530,10 @@ impl<'a> Builder<'a> {
         self.coverage.sort_by(|left, right| {
             (&left.kind, &left.name, &left.source).cmp(&(&right.kind, &right.name, &right.source))
         });
+
         self.diagnostics
             .sort_by(|left, right| left.name.cmp(&right.name));
+
         let reflection_version = self
             .database
             .version
@@ -488,6 +541,7 @@ impl<'a> Builder<'a> {
             .map(u32::to_string)
             .collect::<Vec<_>>()
             .join(".");
+
         let docs_counts = BTreeMap::from([
             ("classes".to_owned(), self.docs.classes.len()),
             ("datatypes".to_owned(), self.docs.datatypes.len()),
@@ -529,15 +583,19 @@ fn property_kind(kind: &PropertyKind<'_>) -> (String, String, Option<String>, Ve
             Some((*alias_for).to_owned()),
             Vec::new(),
         ),
+
         PropertyKind::Canonical { serialization } => {
             let (name, migrations) = match serialization {
                 PropertySerialization::Serializes => ("serializes".to_owned(), Vec::new()),
+
                 PropertySerialization::DoesNotSerialize => {
                     ("does-not-serialize".to_owned(), Vec::new())
                 }
+
                 PropertySerialization::SerializesAs(name) => {
                     (format!("serializes-as:{name}"), Vec::new())
                 }
+
                 PropertySerialization::Migrate(migration) => (
                     format!("migrate:{migration:?}"),
                     migration
@@ -546,10 +604,13 @@ fn property_kind(kind: &PropertyKind<'_>) -> (String, String, Option<String>, Ve
                         .map(|name| (*name).to_owned())
                         .collect(),
                 ),
+
                 _ => ("unknown".to_owned(), Vec::new()),
             };
+
             ("canonical".to_owned(), name, None, migrations)
         }
+
         _ => ("unknown".to_owned(), "unknown".to_owned(), None, Vec::new()),
     }
 }
@@ -573,28 +634,33 @@ fn classify_property(
             "unsupported reflected type".to_owned(),
         );
     }
+
     let Some(doc) = check.doc else {
         return (
             Classification::ReflectionOnly,
             "property-specific schema".to_owned(),
         );
     };
+
     if !doc_type_matches(doc.data_type.as_deref(), check.data_type) {
         let api_type = doc
             .data_type
             .clone()
             .unwrap_or_else(|| "<missing>".to_owned());
+
         diagnostics.push(Diagnostic {
             name: format!("{}.{}", check.class_name, check.property_name),
             classification: Classification::TypeConflict,
             reflection: check.data_type.name().to_owned(),
             api: api_type,
         });
+
         return (
             Classification::TypeConflict,
             "reflection type takes precedence".to_owned(),
         );
     }
+
     if metadata_conflicts(check.serialization, doc.serialization.as_ref()) {
         diagnostics.push(Diagnostic {
             name: format!("{}.{}", check.class_name, check.property_name),
@@ -605,11 +671,13 @@ fn classify_property(
                 .as_ref()
                 .map_or_else(|| "<missing>".to_owned(), ValueExt::compact),
         });
+
         return (
             Classification::MetadataConflict,
             "reflection serialization takes precedence; API metadata retained".to_owned(),
         );
     }
+
     (
         Classification::Matched,
         "property-specific schema".to_owned(),
@@ -628,9 +696,11 @@ impl ValueExt for serde_json::Value {
 
 fn metadata_conflicts(serialization: &str, docs: Option<&serde_json::Value>) -> bool {
     let reflection_serializes = serialization != "does-not-serialize";
+
     let docs_can_load = docs
         .and_then(|value| value.get("can_load"))
         .and_then(serde_json::Value::as_bool);
+
     matches!(docs_can_load, Some(can_load) if can_load != reflection_serializes)
 }
 
@@ -638,7 +708,9 @@ fn doc_type_matches(docs: Option<&str>, reflection: &PropertyType) -> bool {
     let Some(docs) = docs else {
         return false;
     };
+
     let docs = docs.trim_end_matches('?').trim_start_matches("Enum.");
+
     matches!(reflection, PropertyType::Enum(name) | PropertyType::Value(name) if docs == name)
 }
 
@@ -659,11 +731,13 @@ fn add_docs_class_coverage(
                 None,
             ));
         }
+
         for property in &doc.members["properties"] {
             let short = property
                 .name
                 .rsplit_once('.')
                 .map_or(property.name.as_str(), |(_, name)| name);
+
             if reflection
                 .get(name)
                 .is_none_or(|class| !class.properties.contains_key(short))
@@ -679,6 +753,7 @@ fn add_docs_class_coverage(
                 ));
             }
         }
+
         for kind in ["methods", "events", "callbacks"] {
             for member in &doc.members[kind] {
                 coverage.push(item(
@@ -712,6 +787,7 @@ fn add_docs_enum_coverage(
                 None,
             ));
         }
+
         for enum_item in &doc.members["items"] {
             if reflection
                 .get(name)
@@ -747,6 +823,7 @@ fn add_non_projectable_docs(docs: &Catalog, coverage: &mut Vec<CoverageItem>) {
                 &format!("{} runtime API surface, not an Instance property", doc.kind),
                 None,
             ));
+
             for (member_kind, members) in &doc.members {
                 for member in members {
                     coverage.push(item(
@@ -787,6 +864,7 @@ fn item(
 
 fn with_source_type(mut coverage: CoverageItem, source_type: Option<String>) -> CoverageItem {
     coverage.source_type = source_type;
+
     coverage
 }
 

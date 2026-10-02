@@ -94,11 +94,13 @@ struct Deprecation {
 
 pub fn engine_root(path: &Path) -> Result<PathBuf> {
     let direct = path.join("classes");
+
     if direct.is_dir() && path.join("STUDIO_VERSION").is_file() {
         return Ok(path.to_path_buf());
     }
 
     let nested = path.join("content/en-us/reference/engine");
+
     if nested.join("classes").is_dir() && nested.join("STUDIO_VERSION").is_file() {
         return Ok(nested);
     }
@@ -111,6 +113,7 @@ pub fn engine_root(path: &Path) -> Result<PathBuf> {
 
 pub fn load(path: &Path) -> Result<Catalog> {
     let root = engine_root(path)?;
+
     let studio_version = fs::read_to_string(root.join("STUDIO_VERSION"))
         .with_context(|| format!("reading {}/STUDIO_VERSION", root.display()))?
         .lines()
@@ -129,8 +132,10 @@ pub fn load(path: &Path) -> Result<Catalog> {
     catalog.datatypes = load_dir(&root.join("datatypes"))?;
     catalog.globals = load_dir(&root.join("globals"))?;
     catalog.libraries = load_dir(&root.join("libraries"))?;
+
     let deprecations = toml::from_str(include_str!("../deprecations.toml"))
         .context("parsing embedded deprecations.toml")?;
+
     catalog.deprecation_overrides = apply_deprecations(&mut catalog, &deprecations)?;
 
     Ok(catalog)
@@ -141,14 +146,17 @@ fn apply_deprecations(
     deprecations: &Deprecations,
 ) -> Result<Vec<DeprecationOverride>> {
     let mut applied = Vec::with_capacity(deprecations.properties.len());
+
     for (property_name, deprecation) in &deprecations.properties {
         let (class_name, _) = property_name
             .split_once('.')
             .with_context(|| format!("invalid deprecation property name: {property_name}"))?;
+
         let class = catalog
             .classes
             .get_mut(class_name)
             .with_context(|| format!("deprecation property class not found: {property_name}"))?;
+
         let property = class
             .members
             .get_mut("properties")
@@ -158,27 +166,34 @@ fn apply_deprecations(
                     .find(|property| property.name == *property_name)
             })
             .with_context(|| format!("deprecation property not found: {property_name}"))?;
+
         let upstream = property
             .deprecation_message
             .take()
             .with_context(|| format!("deprecation message missing: {property_name}"))?;
+
         let reason = deprecation.reason.trim();
+
         if reason.is_empty() {
             bail!("deprecation reason is empty: {property_name}");
         }
 
         let note = format!("Compatibility note: {reason}\n\nUpstream deprecation note: {upstream}");
+
         property.description = Some(match property.description.take() {
             Some(description) => format!("{description}\n\n{note}"),
             None => note,
         });
+
         property.deprecation_warning_suppressed = true;
+
         applied.push(DeprecationOverride {
             property: property_name.clone(),
             upstream,
             reason: reason.to_owned(),
         });
     }
+
     Ok(applied)
 }
 
@@ -187,22 +202,29 @@ fn load_dir(path: &Path) -> Result<BTreeMap<String, Doc>> {
         .with_context(|| format!("reading docs directory {}", path.display()))?
         .map(|entry| entry.map(|entry| entry.path()))
         .collect::<std::io::Result<Vec<_>>>()?;
+
     paths.retain(|path| {
         path.extension()
             .is_some_and(|extension| extension == "yaml")
     });
+
     paths.sort();
 
     let mut docs = BTreeMap::new();
+
     for path in paths {
         let text = fs::read_to_string(&path)
             .with_context(|| format!("reading docs file {}", path.display()))?;
+
         let value: Value = serde_yaml::from_str(&text)
             .with_context(|| format!("parsing docs file {}", path.display()))?;
+
         let doc = parse_doc(&value)
             .with_context(|| format!("normalizing docs file {}", path.display()))?;
+
         docs.insert(doc.name.clone(), doc);
     }
+
     Ok(docs)
 }
 
@@ -210,6 +232,7 @@ fn parse_doc(value: &Value) -> Result<Doc> {
     let name = string(value, "name").context("missing name")?;
     let kind = string(value, "type").context("missing type")?;
     let mut members = BTreeMap::new();
+
     for member_kind in [
         "properties",
         "methods",
@@ -225,6 +248,7 @@ fn parse_doc(value: &Value) -> Result<Doc> {
             .and_then(Value::as_array)
             .map(|items| items.iter().map(parse_member).collect::<Vec<_>>())
             .unwrap_or_default();
+
         members.insert(member_kind.to_owned(), parsed);
     }
 
@@ -297,6 +321,7 @@ mod tests {
             name: "Lighting".to_owned(),
             ..Doc::default()
         };
+
         class.members.insert(
             "properties".to_owned(),
             vec![Member {
@@ -306,6 +331,7 @@ mod tests {
                 ..Member::default()
             }],
         );
+
         Catalog {
             classes: BTreeMap::from([("Lighting".to_owned(), class)]),
             ..Catalog::default()
@@ -327,23 +353,27 @@ mod tests {
     fn applies_deprecation_override() {
         let mut catalog = catalog("Superseded by newer lighting controls.");
         let applied = apply_deprecations(&mut catalog, &deprecations()).unwrap();
+
         let property = catalog.classes["Lighting"]
             .member("properties", "Technology")
             .unwrap();
 
         assert!(!property.deprecated());
         assert!(property.deprecation_message.is_none());
+
         assert!(property
             .description
             .as_deref()
             .unwrap()
             .contains("Superseded by newer lighting controls."));
+
         assert_eq!(applied[0].property, "Lighting.Technology");
     }
 
     #[test]
     fn rejects_missing_deprecation_message() {
         let mut catalog = catalog("Superseded.");
+
         catalog
             .classes
             .get_mut("Lighting")
@@ -352,6 +382,7 @@ mod tests {
             .get_mut("properties")
             .unwrap()[0]
             .deprecation_message = None;
+
         let error = apply_deprecations(&mut catalog, &deprecations())
             .unwrap_err()
             .to_string();

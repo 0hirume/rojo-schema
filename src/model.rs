@@ -113,8 +113,10 @@ pub struct CoverageItem {
     pub classification: Classification,
     pub projectable: bool,
     pub disposition: String,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_type: Option<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schema_ref: Option<String>,
 }
@@ -142,6 +144,7 @@ pub struct SourceInfo {
     pub repository: String,
     pub version: String,
     pub sha256: String,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub revision: Option<String>,
 }

@@ -15,6 +15,7 @@ struct Cli {
 enum Command {
     /// Generate all deterministic schema artifacts.
     Generate(Paths),
+
     /// Regenerate twice and fail if artifacts are stale or nondeterministic.
     Check(Paths),
 }
@@ -67,13 +68,16 @@ impl From<Paths> for Config {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let started = Instant::now();
+
     let (verb, artifacts) = match cli.command {
         Command::Generate(paths) => {
             let config = Config::from(paths);
             let artifacts = generate(&config)?;
             write(&config, &artifacts)?;
+
             ("generated", artifacts)
         }
+
         Command::Check(paths) => ("checked", check(&Config::from(paths))?),
     };
 
@@ -92,5 +96,6 @@ fn main() -> Result<()> {
         artifacts.stats.conflicts,
         artifacts.stats.unclassified,
     );
+
     Ok(())
 }

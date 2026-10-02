@@ -5,3 +5,4 @@ rust = { version = "nightly", profile = "minimal", components = ["rustfmt", "cli
 gh = "latest"
 "npm:oxfmt" = "latest"
 "npm:yaml-language-server" = "latest"
+"github:0hirume/breathers" = "latest"
