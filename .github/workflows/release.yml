@@ -58,7 +58,7 @@ jobs:
         run: |
           rustup target add "$TARGET"
           cargo build --release --locked --target "$TARGET"
-          nu .github/release.nu package
+          nu scripts/release.nu package
 
       - name: upload binary
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -102,10 +102,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          nu .github/pages.nu clone-sources
-          nu .github/pages.nu install-generator
-          nu .github/pages.nu generate
-          nu .github/pages.nu check
+          nu scripts/pages.nu clone-sources
+          nu scripts/pages.nu install-generator
+          nu scripts/pages.nu generate
+          nu scripts/pages.nu check
 
   publish:
     needs: test
@@ -140,5 +140,5 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          nu .github/release.nu publish
-          nu .github/release.nu trigger-pages
+          nu scripts/release.nu publish
+          nu scripts/release.nu trigger-pages
