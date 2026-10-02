@@ -27,45 +27,8 @@ Add `$schema` at the top level of a `.project.json` or `.project.jsonc` file:
 }
 ```
 
-> [!NOTE]
-> Recent VS Code versions require approval before downloading schemas from a
-> new domain. If the schema URL is reported as untrusted, use its quick fix and
-> choose **Trust URI** or **Trust Domain**. You can also add
-> `https://0hirume.github.io` to `json.schemaDownload.trustedDomains` manually.
+If VS Code marks a schema URL as untrusted, use its quick fix to choose
+**Trust URI** or **Trust Domain**.
 
-Any editor with JSON Schema support can then provide:
-
-- Rojo project, tree, and JSON model completion
-- Roblox class, property, enum, and value completion
-- Property descriptions and deprecation messages
-- Validation for Rojo's project and JSON model formats
-
-The latest schemas update automatically when their upstream sources change.
-The [schema page](https://0hirume.github.io/rojo-schema/) links to the current
-schemas, their manifest and coverage report, and every immutable snapshot.
-
-## How it is generated
-
-`rojo-schema` combines four sources without modifying them:
-
-- Rojo defines the project, tree, and JSON model grammars.
-- Rojo's reflection database defines Roblox classes, properties, types, enums,
-  defaults, and serialization metadata; it remains authoritative for what can
-  be represented as a project or model schema.
-- Roblox Creator Docs provides descriptions, deprecations, security, thread
-  safety, capabilities, and documentation tags.
-- MaximumADHD's Roblox Client Tracker `Full-API-Dump.json` provides an
-  independent current API inventory and property types. Its coverage is
-  reported separately (including `sourceType`) and is not used to invent
-  reflection defaults or serialization behavior.
-
-The generated schema uses JSON Schema Draft 2020-12. Its manifest records the
-exact source revisions and hashes, while its coverage report shows how API and
-reflection entries were reconciled.
-
-## Limits
-
-JSON Schema cannot inspect the class produced by an arbitrary filesystem path,
-check whether paths exist, execute Rojo's glob compiler, or reproduce
-runtime-only resolution checks. Values that cannot be derived safely from the
-sources are represented conservatively rather than guessed.
+Schemas update automatically. The [schema page](https://0hirume.github.io/rojo-schema/)
+includes current schemas, provenance, coverage, and immutable snapshots.
