@@ -6,7 +6,7 @@ on:
       - "v*"
 
 concurrency:
-  group: release
+  group: publication
 
 permissions: {}
 
