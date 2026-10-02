@@ -10,9 +10,6 @@ concurrency:
 
 permissions: {}
 
-env:
-  MISE_TASK_RUN_AUTO_INSTALL: "false"
-
 jobs:
   build:
     name: build ${{ matrix.target }}
@@ -53,11 +50,15 @@ jobs:
           install_args: aqua:nushell/nushell rust
 
       - name: build and package binary
+        shell: bash
         env:
           ARCHIVE: ${{ matrix.archive }}
           SUFFIX: ${{ matrix.suffix }}
           TARGET: ${{ matrix.target }}
-        run: mise run release:build
+        run: |
+          rustup target add "$TARGET"
+          cargo build --release --locked --target "$TARGET"
+          nu .github/release.nu package
 
       - name: upload binary
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -100,7 +101,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-        run: mise run release:test
+        run: |
+          nu .github/pages.nu clone-sources
+          nu .github/pages.nu install-generator
+          nu .github/pages.nu generate
+          nu .github/pages.nu check
 
   publish:
     needs: test
@@ -134,4 +139,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
-        run: mise run release:publish
+        run: |
+          nu .github/release.nu publish
+          nu .github/release.nu trigger-pages

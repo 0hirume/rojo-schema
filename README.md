@@ -63,28 +63,6 @@ The generated schema uses JSON Schema Draft 2020-12. Its manifest records the
 exact source revisions and hashes, while its coverage report shows how API and
 reflection entries were reconciled.
 
-## Development
-
-All development and release operations run through mise tasks. Generation
-requires local Rojo, Creator Docs, and Client Tracker checkouts:
-
-```console
-mise run generate -- C:/path/to/rojo C:/path/to/creator-docs C:/path/to/Roblox-Client-Tracker
-mise run check -- C:/path/to/rojo C:/path/to/creator-docs C:/path/to/Roblox-Client-Tracker
-```
-
-`generate` writes the project schema, model schema, manifest, and coverage
-report to the ignored `dist` directory. `check` verifies that generation is
-deterministic and the existing artifacts are current. The docs path may be the
-Creator Docs `content/en-us/reference/engine` directory.
-
-Verification uses `ROJO_SCHEMA_ROJO`, `ROJO_SCHEMA_DOCS`, and
-`ROJO_SCHEMA_TRACKER` for the same source paths:
-
-```console
-mise run verify
-```
-
 ## Limits
 
 JSON Schema cannot inspect the class produced by an arbitrary filesystem path,

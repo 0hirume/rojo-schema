@@ -11,7 +11,6 @@ concurrency:
 permissions: {}
 
 env:
-  MISE_TASK_RUN_AUTO_INSTALL: "false"
   DOCS_REPOSITORY: Roblox/creator-docs
   ROJO_REPOSITORY: rojo-rbx/rojo
   TRACKER_REPOSITORY: MaximumADHD/Roblox-Client-Tracker
@@ -41,7 +40,12 @@ jobs:
           GIT_LFS_SKIP_SMUDGE: "1"
           REPOSITORY: ${{ github.repository }}
           SNAPSHOT_BRANCH: snapshots
-        run: mise run pages
+        run: |
+          nu .github/pages.nu clone-sources
+          nu .github/pages.nu download-generator
+          nu .github/pages.nu generate
+          nu .github/pages.nu snapshot
+          nu .github/pages.nu stage
 
       - name: upload pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
