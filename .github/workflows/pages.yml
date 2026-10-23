@@ -3,15 +3,47 @@ name: pages
 on:
   schedule:
     - cron: "0 3 * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Published release tag to deploy
+        type: string
 
 concurrency:
   group: publication
+  queue: max
 
 permissions: {}
 
 jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      release: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: set up nushell
+        uses: hustcer/setup-nu@eacad52a4634c4f8d17a94916f93be6856861b9c
+
+      - name: resolve published release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          REQUESTED_RELEASE: ${{ inputs.release }}
+        run: nu scripts/pages.nu resolve
+
   build:
+    needs: resolve
+    if: needs.resolve.outputs.release != ''
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -29,7 +61,7 @@ jobs:
           minimum_release_age: 0s
           mise_toml: |
             [tools]
-            "github:${{ github.repository }}" = "latest"
+            "github:${{ github.repository }}" = "${{ needs.resolve.outputs.release }}"
           cache: false
 
       - name: set up nushell

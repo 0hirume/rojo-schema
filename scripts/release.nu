@@ -77,5 +77,19 @@ def "main publish" []: nothing -> string {
         []
     }
 
-    gh release create $env.GITHUB_REF_NAME --verify-tag --title $env.GITHUB_REF_NAME --notes-file $notes ...$arguments ...$manifest.upload_files
+    let created = gh release create $env.GITHUB_REF_NAME --draft --verify-tag --title $env.GITHUB_REF_NAME --notes-file $notes ...$arguments ...$manifest.upload_files | complete
+
+    if $created.exit_code != 0 {
+        error make {
+            msg: $"Draft release upload failed: ($created.stderr | str trim)"
+            labels: [
+                {
+                    text: "GitHub CLI upload failure"
+                    span: (metadata $created.stderr).span
+                }
+            ]
+        }
+    }
+
+    gh release edit $env.GITHUB_REF_NAME --draft=false
 }
