@@ -78,6 +78,8 @@ unused_trait_names = "deny"
 use_self = "deny"
 verbose_file_reads = "deny"
 
+too_many_lines = "allow"
+
 [lints.rust]
 deprecated_safe = { level = "deny", priority = -1 }
 let_underscore = { level = "deny", priority = -1 }
