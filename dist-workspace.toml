@@ -1,0 +1,7 @@
+[workspace]
+members = ["cargo:."]
+
+[dist]
+cargo-dist-version = "0.33.1"
+hosting = ["github"]
+targets = ["x86_64-unknown-linux-gnu"]

@@ -10,17 +10,12 @@ concurrency:
 
 permissions: {}
 
-env:
-  DOCS_REPOSITORY: Roblox/creator-docs
-  ROJO_REPOSITORY: rojo-rbx/rojo
-  TRACKER_REPOSITORY: MaximumADHD/Roblox-Client-Tracker
-
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
     permissions:
-      contents: write # persist immutable schema snapshots.
+      contents: read
     steps:
       - name: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -28,17 +23,20 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.repository.default_branch }}
 
+      - name: set up schema compiler
+        uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7
+        with:
+          mise_toml: |
+            [tools]
+            "github:${{ github.repository }}" = "latest"
+          cache: false
+
       - name: set up nushell
         uses: hustcer/setup-nu@913f2aa794632a1834b5a6b983bd21832177544b
         with:
           version: ">=0.116.0"
 
       - name: build site
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GIT_LFS_SKIP_SMUDGE: "1"
-          REPOSITORY: ${{ github.repository }}
-          SNAPSHOT_BRANCH: snapshots
         run: nu scripts/pages.nu
 
       - name: upload pages artifact
@@ -49,6 +47,7 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       id-token: write # verify the deployment source.
       pages: write # deploy the pages artifact.

@@ -1,0 +1,64 @@
+name: quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ROJO_SCHEMA_ROJO: ${{ github.workspace }}/sources/rojo
+      ROJO_SCHEMA_DOCS: ${{ github.workspace }}/sources/docs
+      ROJO_SCHEMA_TRACKER: ${{ github.workspace }}/sources/tracker
+    steps:
+      - name: check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: check out Rojo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: rojo-rbx/rojo
+          path: sources/rojo
+          persist-credentials: false
+
+      - name: check out documentation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: Roblox/creator-docs
+          path: sources/docs
+          sparse-checkout: content/en-us/reference/engine
+          persist-credentials: false
+
+      - name: check out Client Tracker
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: MaximumADHD/Roblox-Client-Tracker
+          ref: roblox
+          path: sources/tracker
+          sparse-checkout: |
+            Full-API-Dump.json
+            version.txt
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: check formatting
+        run: cargo fmt --all --check
+
+      - name: check lints
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: run integration tests
+        run: cargo test --locked --test schema

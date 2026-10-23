@@ -30,5 +30,4 @@ Add `$schema` at the top level of a `.project.json` or `.project.jsonc` file:
 If VS Code marks a schema URL as untrusted, use its quick fix to choose
 **Trust URI** or **Trust Domain**.
 
-Schemas update automatically. The [schema page](https://0hirume.github.io/rojo-schema/)
-includes current schemas, provenance, coverage, and immutable snapshots.
+Schemas update automatically.
