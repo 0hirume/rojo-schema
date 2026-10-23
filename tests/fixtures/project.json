@@ -14,12 +14,62 @@
       },
       "syncRules": [{ "pattern": "**/*.server.luau", "use": "serverScript" }]
     },
-    { "tree": { "$path": "assets", "$properties": { "Anchored": true } } }
+    { "tree": { "$path": "assets", "$properties": { "Anchored": true } } },
+    { "tree": { "$path": "src/runner.server.luau", "$properties": { "UniqueId": { "UniqueId": "00000000000000000000000000000000" } } } },
+    {
+      "tree": {
+        "$className": "DataModel",
+        "ReplicatedStorage": {
+          "$path": "src/shared",
+          "runners": {
+            "$className": "Folder",
+            "client": {
+              "$className": "Actor",
+              "runner": {
+                "$path": "src/workers/runner.server.luau",
+                "$properties": { "Disabled": true, "RunContext": "Client" }
+              },
+              "completed": { "$className": "BindableEvent" },
+              "job": { "$className": "ObjectValue" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "tree": {
+        "$className": null,
+        "$path": { "optional": "src/runner.server.luau" },
+        "$properties": { "Disabled": true, "RunContext": "Client" }
+      }
+    },
+    {
+      "tree": {
+        "$className": "Part",
+        "$path": "src/runner.server.luau",
+        "$properties": { "Anchored": true }
+      }
+    },
+    {
+      "syncRules": [{ "pattern": "**/*.server.luau", "use": "jsonModel" }],
+      "tree": {
+        "$path": "src/runner.server.luau",
+        "$properties": { "Anchored": true }
+      }
+    }
   ],
   "invalid": [
     { "name": "missing tree" },
     { "tree": { "$className": "Part", "$path": 42 } },
     { "tree": { "$className": "NotAClass" } },
-    { "tree": { "$className": "Part", "$properties": { "Text": "cross-class" } } }
+    { "tree": { "$className": "Part", "$properties": { "Text": "cross-class" } } },
+    { "tree": { "$path": "src/runner.server.luau", "$properties": { "Anchored": true } } },
+    { "tree": { "$path": "src/runner.server.luau", "$properties": { "Disabled": "true" } } },
+    { "tree": { "$path": "src/runner.server.luau", "$properties": { "RunContext": "NotAContext" } } },
+    { "tree": { "$path": "src/runner.server.luau", "$properties": { "Auto Delete Closing Brackets and Quotes": true } } },
+    { "tree": { "$path": "src/runner.server.luau", "$properties": { "UniqueId": true } } },
+    { "tree": { "$path": "src/runner.server.luau", "$properties": { "UniqueId": false } } },
+    { "tree": { "$path": "src/runner.server.luau", "$properties": { "UniqeId": true } } },
+    { "tree": { "$path": "src/module.luau", "$properties": { "Disabled": true } } }
   ]
 }

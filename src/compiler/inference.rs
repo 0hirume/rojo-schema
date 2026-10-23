@@ -210,16 +210,31 @@ pub(super) fn pattern(glob: &str) -> String {
 
 pub(super) fn apply(project: &mut Value, grammar: &Grammar) -> Result<()> {
     let definitions = project
-        .get("$defs")
-        .and_then(Value::as_object)
+        .get_mut("$defs")
+        .and_then(Value::as_object_mut)
         .context("project definitions are missing")?;
 
-    let references = definitions
+    let custom = definitions
         .iter()
-        .map(|(key, value)| (pointer::path(key), value))
-        .collect::<BTreeMap<_, _>>();
+        .filter(|(name, _)| name.starts_with("node/") || name.starts_with("inferred/"))
+        .map(|(name, schema)| {
+            let mut schema = schema.clone();
+            custom_references(&mut schema);
 
-    let mut dispatch = json!({});
+            (format!("custom/{name}"), schema)
+        })
+        .collect::<Map<_, _>>();
+
+    definitions.extend(custom);
+
+    let fallback = definitions["node/Any"]["allOf"]
+        .as_array()
+        .and_then(|rules| rules.iter().find(|rule| rule.get("if").is_some()))
+        .and_then(|rule| rule.get("else"))
+        .context("node class dispatch is missing")?
+        .clone();
+
+    let mut dispatch = fallback.clone();
 
     for rule in grammar.path_rules.iter().rev() {
         let mut condition = json!({ "type": "string", "pattern": pattern(&rule.pattern) });
@@ -228,7 +243,11 @@ pub(super) fn apply(project: &mut Value, grammar: &Grammar) -> Result<()> {
             condition["not"] = json!({ "pattern": pattern(exclude) });
         }
 
-        let hint = path_hint(definitions, &references, grammar, rule)?;
+        let hint = if rule.classes.is_empty() {
+            fallback.clone()
+        } else {
+            path_hint(definitions, grammar, rule)?
+        };
 
         dispatch = json!({
             "if": { "properties": { "$path": { "anyOf": [
@@ -240,18 +259,22 @@ pub(super) fn apply(project: &mut Value, grammar: &Grammar) -> Result<()> {
         });
     }
 
-    let hint = json!({
-        "patternProperties": { "^[^$]": pointer::reference("hint/path") },
-        "if": { "properties": { grammar.node.class.clone(): { "type": "null" } } },
-        "then": dispatch
-    });
+    let selection = definitions
+        .get_mut("node/Any")
+        .and_then(|node| node.get_mut("allOf"))
+        .and_then(Value::as_array_mut)
+        .and_then(|rules| rules.iter_mut().find(|rule| rule.get("if").is_some()))
+        .context("node class dispatch is missing")?;
 
-    let definitions = project
-        .get_mut("$defs")
+    selection["else"] = dispatch;
+
+    let tree = project
+        .get_mut("properties")
+        .and_then(|fields| fields.get_mut(&grammar.tree))
         .and_then(Value::as_object_mut)
-        .context("project definitions are missing")?;
+        .context("project tree is missing")?;
 
-    definitions.insert("hint/path".to_owned(), hint);
+    tree.remove("$ref");
 
     project
         .as_object_mut()
@@ -259,79 +282,66 @@ pub(super) fn apply(project: &mut Value, grammar: &Grammar) -> Result<()> {
         .entry("allOf")
         .or_insert_with(|| json!([]))
         .as_array_mut()
-        .context("project allOf is not an array")?
+        .context("project allOf must be an array")?
         .push(json!({
             "if": { "properties": { "syncRules": { "maxItems": 0 } } },
-            "then": { "properties": { grammar.tree.clone(): pointer::reference("hint/path") } }
+            "then": { "properties": { grammar.tree.clone(): pointer::reference("node/Any") } },
+            "else": { "properties": { grammar.tree.clone(): pointer::reference("custom/node/Any") } }
         }));
 
     Ok(())
 }
 
-fn path_hint(
-    definitions: &Map<String, Value>,
-    references: &BTreeMap<String, &Value>,
-    grammar: &Grammar,
-    rule: &Rule,
-) -> Result<Value> {
-    if rule.classes.is_empty() {
-        return Ok(json!({}));
-    }
+fn path_hint(definitions: &Map<String, Value>, grammar: &Grammar, rule: &Rule) -> Result<Value> {
+    let properties = rule
+        .classes
+        .iter()
+        .map(|class| {
+            let name = format!("properties/{class}");
 
-    let mut properties = Map::new();
+            ensure!(
+                definitions.contains_key(&name),
+                "inferred class {class} has no property schema"
+            );
 
-    for class in &rule.classes {
-        let fields = definitions
-            .get(&format!("properties/{class}"))
-            .and_then(|schema| schema.get("properties"))
-            .and_then(Value::as_object)
-            .with_context(|| format!("inferred class {class} has no property schema"))?;
-
-        for (name, reference) in fields {
-            let reference = reference
-                .get("$ref")
-                .and_then(Value::as_str)
-                .context("property definition is not a reference")?;
-
-            let definition = references
-                .get(reference)
-                .context("property reference did not resolve")?;
-
-            let annotation = definition
-                .as_object()
-                .context("property schema is not an object")?
-                .iter()
-                .filter(|(key, _)| {
-                    matches!(
-                        key.as_str(),
-                        "description"
-                            | "markdownDescription"
-                            | "title"
-                            | "deprecated"
-                            | "deprecationMessage"
-                            | "default"
-                            | "examples"
-                            | "defaultSnippets"
-                    ) || key.starts_with("x-")
-                })
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect::<Map<_, _>>();
-
-            properties
-                .entry(name.clone())
-                .or_insert_with(|| Value::Object(annotation));
-        }
-    }
+            Ok(pointer::reference(&name))
+        })
+        .collect::<Result<Vec<_>>>()?;
 
     let classes = rule.classes.iter().cloned().collect::<Vec<_>>().join(" | ");
 
     Ok(json!({
         "title": classes,
         "x-rojo-class": classes,
-        "markdownDescription": format!("Inferred from Rojo's `{}` file rule. File metadata can refine the class.", rule.pattern),
+        "markdownDescription": format!("Inferred from Rojo's `{}` file rule.", rule.pattern),
         "properties": { grammar.node.properties.clone(): {
             "markdownDescription": format!("Property suggestions for `{classes}`."),
-            "properties": properties
+            "anyOf": properties
         } }
     }))
+}
+
+fn custom_references(schema: &mut Value) {
+    match schema {
+        Value::Object(fields) => {
+            if let Some(Value::String(reference)) = fields.get_mut("$ref")
+                && (reference.starts_with("#/$defs/node~1")
+                    || reference.starts_with("#/$defs/inferred~1"))
+            {
+                reference.insert_str("#/$defs/".len(), "custom~1");
+            }
+
+            for value in fields.values_mut() {
+                custom_references(value);
+            }
+        }
+
+        Value::Array(values) => {
+            for value in values {
+                custom_references(value);
+            }
+        }
+
+        _ => {}
+    }
 }

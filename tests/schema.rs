@@ -148,7 +148,22 @@ fn schema_is_source_derived_and_class_aware() {
         "#/$defs/property~1Instance~1Name"
     );
 
-    assert_eq!(schema["properties"]["tree"]["$ref"], "#/$defs/node~1Any");
+    assert!(schema["properties"]["tree"].get("$ref").is_none());
+
+    assert_eq!(
+        schema["allOf"][0]["then"]["properties"]["tree"]["$ref"],
+        "#/$defs/node~1Any"
+    );
+
+    assert_eq!(
+        schema["allOf"][0]["else"]["properties"]["tree"]["$ref"],
+        "#/$defs/custom~1node~1Any"
+    );
+
+    let unique = &definitions["property/Instance/UniqueId"];
+    assert!(unique["default"].is_object());
+    assert!(unique.get("examples").is_none());
+    assert!(unique.get("defaultSnippets").is_none());
 
     let middleware = definitions["rojo/Middleware"]["anyOf"].as_array().unwrap();
     assert_ne!(middleware.len(), 0, "middleware must not be empty");
@@ -220,12 +235,30 @@ fn assert_project_dispatch(definitions: &serde_json::Map<String, Value>, coverag
             && branch["properties"]["$properties"]["$ref"] == "#/$defs/properties~1Part"
     }));
 
+    let mut fallback = &dispatch["else"];
+
+    while fallback.get("if").is_some() {
+        fallback = &fallback["else"];
+    }
+
+    let dispatch = json!({ "else": fallback });
     assert_eq!(dispatch["else"]["properties"]["$className"]["type"], "null");
 
     assert!(
         dispatch["else"]["properties"]["$properties"]["propertyNames"]["enum"]
             .as_array()
             .is_some_and(|names| !names.is_empty())
+    );
+
+    assert_eq!(
+        dispatch["else"]["properties"]["$properties"]["propertyNames"]["doNotSuggest"],
+        true
+    );
+
+    assert!(
+        dispatch["else"]["properties"]["$properties"]
+            .get("properties")
+            .is_none()
     );
 }
 

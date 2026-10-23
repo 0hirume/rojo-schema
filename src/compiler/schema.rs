@@ -39,7 +39,7 @@ pub(super) fn build(
     definitions.extend(grammar.definitions.clone());
     link_external_formats(&mut definitions, formats);
 
-    datatype_annotations(&mut definitions, docs, api);
+    datatype_annotations(&mut definitions, docs);
 
     if let Some(value) = definitions
         .get_mut(&format!("rojo/{}", grammar.node.value))
@@ -141,11 +141,7 @@ pub(super) fn build(
     })
 }
 
-fn datatype_annotations(
-    definitions: &mut Map<String, Value>,
-    docs: &super::docs::Catalog,
-    api: &Api,
-) {
+fn datatype_annotations(definitions: &mut Map<String, Value>, docs: &super::docs::Catalog) {
     for (name, doc) in &docs.datatypes {
         if let Some(schema) = definitions.get_mut(&format!("serde/{name}")) {
             annotate(
@@ -169,46 +165,6 @@ fn datatype_annotations(
                 doc.deprecated(),
                 doc.deprecation_message.as_deref(),
             );
-        }
-    }
-
-    for property in api
-        .classes
-        .values()
-        .flat_map(|class| class.properties.values())
-    {
-        let PropertyType::Value(name) = &property.data_type else {
-            continue;
-        };
-
-        let Some(default) = &property.default else {
-            continue;
-        };
-
-        let Some(schema) = definitions
-            .get_mut(&format!("value/{name}"))
-            .and_then(Value::as_object_mut)
-        else {
-            continue;
-        };
-
-        schema.entry("examples").or_insert_with(|| json!([default]));
-
-        schema
-            .entry("defaultSnippets")
-            .or_insert_with(|| json!([{ "label": "Reflected value", "body": default }]));
-
-        if let Some(value) = schema
-            .get_mut("properties")
-            .and_then(|fields| fields.get_mut(name))
-            .and_then(Value::as_object_mut)
-            && let Some(payload) = default.get(name)
-        {
-            value.entry("examples").or_insert_with(|| json!([payload]));
-
-            value
-                .entry("defaultSnippets")
-                .or_insert_with(|| json!([{ "label": "Reflected value", "body": payload }]));
         }
     }
 }
@@ -564,54 +520,19 @@ fn inferred_children(api: &Api, grammar: &Grammar) -> Result<BTreeMap<String, BT
 }
 
 fn generic_properties(api: &Api, node: &Node) -> Value {
-    let mut candidates: BTreeMap<&str, Vec<&Property>> = BTreeMap::new();
-
-    for class in api.classes.values() {
-        for property in class.properties.values() {
-            candidates.entry(&property.name).or_default().push(property);
-        }
-    }
-
-    let properties = candidates
-        .into_iter()
-        .map(|(name, candidates)| {
-            let mut schema = reference(&format!("rojo/{}", node.value));
-
-            let types = candidates
-                .iter()
-                .map(|property| property.data_type.name())
-                .collect::<BTreeSet<_>>();
-
-            let types = types.into_iter().collect::<Vec<_>>().join(" | ");
-            schema["x-rojo-value-type"] = json!(types);
-
-            let mut description = String::new();
-
-            let summaries = candidates
-                .iter()
-                .filter_map(|property| {
-                    property
-                        .summary
-                        .as_deref()
-                        .or(property.description.as_deref())
-                })
-                .collect::<BTreeSet<_>>();
-
-            for summary in summaries {
-                description.push_str("\n\n");
-                description.push_str(summary);
-            }
-
-            annotate(&mut schema, Some(&description), None, false, None);
-
-            (name.to_owned(), schema)
-        })
-        .collect::<Map<_, _>>();
+    let names = api
+        .classes
+        .values()
+        .flat_map(|class| class.properties.keys())
+        .collect::<BTreeSet<_>>();
 
     json!({
         "type": "object",
-        "propertyNames": { "enum": properties.keys().collect::<Vec<_>>() },
-        "properties": properties,
+        "propertyNames": {
+            "enum": names,
+            "doNotSuggest": true,
+            "errorMessage": "Unknown Roblox property."
+        },
         "additionalProperties": reference(&format!("rojo/{}", node.value)),
         "default": {}
     })
@@ -877,13 +798,6 @@ fn property_schema(
     }
 
     if let Some(default) = default {
-        object.insert("examples".to_owned(), json!([default]));
-
-        object.insert(
-            "defaultSnippets".to_owned(),
-            json!([{ "label": "Reflected default", "body": default }]),
-        );
-
         object.insert("default".to_owned(), default);
     }
 
