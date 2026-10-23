@@ -1,3 +1,5 @@
+//! Validate generated schemas against project, model, and API fixtures.
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     env, fs,
@@ -6,8 +8,8 @@ use std::{
 };
 
 use jsonschema::{Draft, Validator};
-use rojo_schema::{generate, Artifacts, Config};
-use serde_json::{json, Value};
+use rojo_schema::{Artifacts, Config, generate};
+use serde_json::{Value, json};
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -30,7 +32,6 @@ fn config() -> Config {
         tracker: source("ROJO_SCHEMA_TRACKER"),
         project: root().join("dist/project.schema.json"),
         model: root().join("dist/model.schema.json"),
-        manifest: root().join("dist/manifest.json"),
         coverage: root().join("dist/coverage.json"),
     }
 }
@@ -47,7 +48,6 @@ fn artifact(name: &str) -> Value {
     let bytes = match name {
         "project.schema.json" => &artifacts.project,
         "model.schema.json" => &artifacts.model,
-        "manifest.json" => &artifacts.manifest,
         "coverage.json" => &artifacts.coverage,
         _ => panic!("unknown artifact: {name}"),
     };
@@ -63,7 +63,6 @@ fn fixture(name: &str) -> Value {
 fn schema_is_source_derived_and_class_aware() {
     let schema = artifact("project.schema.json");
     let model = artifact("model.schema.json");
-    let manifest = artifact("manifest.json");
     let coverage = artifact("coverage.json");
 
     assert_eq!(
@@ -87,11 +86,7 @@ fn schema_is_source_derived_and_class_aware() {
         )
     );
 
-    assert_eq!(manifest["projectSchemaId"], schema["$id"]);
-    assert_eq!(manifest["modelSchemaId"], model["$id"]);
     assert_model_schema(&model);
-    assert!(manifest["sources"]["rojo"]["version"].is_string());
-    assert!(manifest["sources"]["clientTracker"]["version"].is_string());
     assert!(coverage["clientTracker"]["classes"].as_u64().unwrap() > 0);
 
     assert!(coverage["items"].as_array().unwrap().iter().any(|item| {
@@ -99,14 +94,6 @@ fn schema_is_source_derived_and_class_aware() {
             && item["kind"] == "property"
             && item["sourceType"].is_string()
     }));
-
-    for source in manifest["sources"].as_object().unwrap().values() {
-        assert!(source.get("path").is_none());
-
-        assert!(source["repository"]
-            .as_str()
-            .is_some_and(|repository| repository.starts_with("https://")));
-    }
 
     let definitions = schema["$defs"].as_object().unwrap();
     let character_auto_loads = &definitions["property/Players/CharacterAutoLoads"];
@@ -121,10 +108,12 @@ fn schema_is_source_derived_and_class_aware() {
     let technology = &definitions["property/Lighting/Technology"];
     assert!(technology["default"].is_string());
 
-    assert!(definitions["enum/Technology"]["enum"]
-        .as_array()
-        .unwrap()
-        .contains(&technology["default"]));
+    assert!(
+        definitions["enum/Technology"]["enum"]
+            .as_array()
+            .unwrap()
+            .contains(&technology["default"])
+    );
 
     assert_deprecation_overrides(&schema, &coverage);
 
@@ -172,57 +161,29 @@ fn schema_is_source_derived_and_class_aware() {
     );
 }
 
-#[test]
-fn reflection_provenance_matches_rojo() {
-    let manifest = artifact("manifest.json");
-
-    let lock: toml::Value =
-        toml::from_str(&fs::read_to_string(rojo().join("Cargo.lock")).unwrap()).unwrap();
-
-    let reflection = lock["package"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|package| package["name"].as_str() == Some("rbx_reflection_database"))
-        .unwrap();
-
-    assert_eq!(
-        manifest["sources"]["reflection"]["version"],
-        reflection["version"].as_str().unwrap()
-    );
-
-    assert_eq!(
-        manifest["sources"]["reflection"]["sha256"],
-        reflection["checksum"].as_str().unwrap()
-    );
-
-    assert_eq!(
-        manifest["sources"],
-        serde_json::to_value(rojo_schema::source_versions(&config()).unwrap()).unwrap()
-    );
-}
-
 fn assert_project_dispatch(definitions: &serde_json::Map<String, Value>, coverage: &Value) {
     assert_eq!(
-        definitions["node/Part"]["properties"]["$className"]["const"],
-        "Part"
+        definitions["node/Part"]["properties"]["$className"]["enum"],
+        json!(["Part", null])
     );
 
     assert!(definitions["node/Part"].get("required").is_none());
 
     assert_eq!(
         definitions["node/DataModel"]["properties"]["Lighting"]["$ref"],
-        "#/$defs/node~1Lighting"
+        "#/$defs/inferred~1Lighting"
     );
 
     assert_eq!(
-        definitions["node/Path"]["properties"]["$className"]["const"],
-        "Path"
+        definitions["node/Path"]["properties"]["$className"]["enum"],
+        json!(["Path", null])
     );
 
-    assert!(definitions["properties/Path"]
-        .get("propertyNames")
-        .is_none());
+    assert!(
+        definitions["properties/Path"]
+            .get("propertyNames")
+            .is_none()
+    );
 
     assert_eq!(
         definitions["properties/Path"]["additionalProperties"],
@@ -312,11 +273,13 @@ fn assert_model_schema(schema: &Value) {
     let any = &schema["$defs"]["model/Any"];
     assert!(any.get("allOf").is_none());
 
-    assert!(any["oneOf"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|branch| branch["$ref"] == "#/$defs/model~1Part"));
+    assert!(
+        any["oneOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|branch| branch["$ref"] == "#/$defs/model~1Part")
+    );
 
     let part = &schema["$defs"]["model/Part"];
 
@@ -457,30 +420,40 @@ fn assert_property_metadata(schema: &Value) {
         .map(|(_, schema)| schema)
         .collect::<Vec<_>>();
 
-    assert!(property_definitions
-        .iter()
-        .any(|value| value["deprecated"] == true));
+    assert!(
+        property_definitions
+            .iter()
+            .any(|value| value["deprecated"] == true)
+    );
 
     assert!(property_definitions.iter().any(|value| {
         value["deprecationMessage"].is_string()
             && value["deprecationMessage"] == value["x-roblox-deprecation-message"]
     }));
 
-    assert!(property_definitions
-        .iter()
-        .any(|value| value.get("x-rojo-alias-for").is_some()));
+    assert!(
+        property_definitions
+            .iter()
+            .any(|value| value.get("x-rojo-alias-for").is_some())
+    );
 
-    assert!(property_definitions
-        .iter()
-        .any(|value| value.get("x-rojo-migration-targets").is_some()));
+    assert!(
+        property_definitions
+            .iter()
+            .any(|value| value.get("x-rojo-migration-targets").is_some())
+    );
 
-    assert!(property_definitions
-        .iter()
-        .any(|value| value["x-rojo-serialization"] == "does-not-serialize"));
+    assert!(
+        property_definitions
+            .iter()
+            .any(|value| value["x-rojo-serialization"] == "does-not-serialize")
+    );
 
-    assert!(property_definitions
-        .iter()
-        .any(|value| value.get("x-roblox-security").is_some()));
+    assert!(
+        property_definitions
+            .iter()
+            .any(|value| value.get("x-roblox-security").is_some())
+    );
 }
 
 #[test]
@@ -492,25 +465,11 @@ fn draft_schema_and_projects_validate() {
         .build(&schema)
         .expect("generated schema must compile as Draft 2020-12");
 
-    let valid_inline = json!({
-        "name": "example",
-        "tree": {
-            "$className": "DataModel",
-            "Workspace": {
-                "Part": {
-                    "$className": "Part",
-                    "$properties": {
-                        "Anchored": true,
-                        "Position": [1, 2, 3]
-                    }
-                },
-                "Terrain": {}
-            }
-        },
-        "syncRules": [{ "pattern": "**/*.server.luau", "use": "serverScript" }]
-    });
+    let documents = fixture("project.json");
 
-    assert_valid(&validator, &valid_inline, "inline positive fixture");
+    for value in documents["valid"].as_array().unwrap() {
+        assert_valid(&validator, value, "project fixture");
+    }
 
     for name in ["minimal.project.json", "valid.project.json"] {
         assert_valid(&validator, &fixture(name), name);
@@ -532,33 +491,13 @@ fn draft_schema_and_projects_validate() {
 
     let invalid_local = fixture("invalid.project.json");
     assert!(!validator.is_valid(&invalid_local));
-    assert!(!validator.is_valid(&json!({ "name": "missing tree" })));
 
-    assert!(!validator.is_valid(&json!({
-        "tree": { "$className": "Part", "$path": 42 }
-    })));
-
-    assert!(!validator.is_valid(&json!({
-        "tree": { "$className": "NotAClass" }
-    })));
-
-    assert!(!validator.is_valid(&json!({
-        "tree": {
-            "$className": "Part",
-            "$properties": { "Text": "cross-class" }
-        }
-    })));
-
-    assert_valid(
-        &validator,
-        &json!({
-            "tree": {
-                "$path": "assets",
-                "$properties": { "Anchored": true }
-            }
-        }),
-        "path-backed generic node",
-    );
+    for value in documents["invalid"].as_array().unwrap() {
+        assert!(
+            !validator.is_valid(value),
+            "invalid project accepted: {value}"
+        );
+    }
 }
 
 #[test]
@@ -584,35 +523,18 @@ fn models_validate() {
 
     let local = fixture("valid.model.json");
     assert_valid(&validator, &local, "local model fixture");
-    assert!(!validator.is_valid(&json!({ "properties": {} })));
+    let documents = fixture("model.json");
 
-    assert!(!validator.is_valid(&json!({
-        "className": "Part",
-        "ClassName": "Part"
-    })));
+    for value in documents["valid"].as_array().unwrap() {
+        assert_valid(&validator, value, "model fixture");
+    }
 
-    assert!(!validator.is_valid(&json!({
-        "className": "Part",
-        "properties": { "NotAProperty": true }
-    })));
-
-    assert_valid(
-        &validator,
-        &json!({
-            "ClassName": "Part",
-            "Properties": { "Anchored": true }
-        }),
-        "class-specific model properties",
-    );
-
-    assert!(!validator.is_valid(&json!({
-        "ClassName": "Part",
-        "Properties": { "Text": "cross-class" }
-    })));
-
-    assert!(!validator.is_valid(&json!({
-        "ClassName": "NotAClass"
-    })));
+    for value in documents["invalid"].as_array().unwrap() {
+        assert!(
+            !validator.is_valid(value),
+            "invalid model accepted: {value}"
+        );
+    }
 }
 
 #[test]
@@ -621,7 +543,6 @@ fn real_generation_is_byte_deterministic() {
     let second = generate(&config()).unwrap();
     assert_eq!(first.project, second.project);
     assert_eq!(first.model, second.model);
-    assert_eq!(first.manifest, second.manifest);
     assert_eq!(first.coverage, second.coverage);
 }
 

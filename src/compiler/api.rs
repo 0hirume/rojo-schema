@@ -5,16 +5,18 @@ use rbx_reflection::{
     ReflectionDatabase,
 };
 
-use crate::{
+use serde_json::Value;
+
+use super::{
     docs::{Catalog, Doc, Member},
     model::{
         Api, Class, Classification, ClientTrackerStats, CoverageItem, Diagnostic, Enum, EnumItem,
         Property, PropertyType,
     },
-    tracker,
+    pointer, tracker,
 };
 
-pub fn build(
+pub(super) fn build(
     docs: &Catalog,
     tracker: &tracker::Catalog,
     database: &ReflectionDatabase<'_>,
@@ -23,10 +25,10 @@ pub fn build(
     Builder::new(docs, tracker, database, variants).build()
 }
 
-struct Builder<'a> {
-    docs: &'a Catalog,
-    tracker: &'a tracker::Catalog,
-    database: &'a ReflectionDatabase<'a>,
+struct Builder<'source> {
+    docs: &'source Catalog,
+    tracker: &'source tracker::Catalog,
+    database: &'source ReflectionDatabase<'source>,
     supported: BTreeSet<String>,
     classes: BTreeMap<String, Class>,
     enums: BTreeMap<String, Enum>,
@@ -36,11 +38,11 @@ struct Builder<'a> {
     client_tracker: ClientTrackerStats,
 }
 
-impl<'a> Builder<'a> {
+impl<'source> Builder<'source> {
     fn new(
-        docs: &'a Catalog,
-        tracker: &'a tracker::Catalog,
-        database: &'a ReflectionDatabase<'a>,
+        docs: &'source Catalog,
+        tracker: &'source tracker::Catalog,
+        database: &'source ReflectionDatabase<'source>,
         variants: &BTreeSet<String>,
     ) -> Self {
         Self {
@@ -238,10 +240,22 @@ impl<'a> Builder<'a> {
                     docs_serialization: doc_property
                         .and_then(|member| member.serialization.clone()),
                     capabilities: doc_property
-                        .map(|member| member.capabilities.clone())
-                        .unwrap_or_default(),
+                        .filter(|member| !member.capabilities.is_empty())
+                        .map(|member| serde_json::json!(member.capabilities)),
                 },
             );
+        }
+
+        if let Some(class) = self.tracker.classes.get(class_name) {
+            for property in properties.values_mut() {
+                if let Some(member) = class
+                    .members
+                    .get(&property.name)
+                    .filter(|member| member.kind == "Property")
+                {
+                    enrich_property(property, member);
+                }
+            }
         }
 
         properties
@@ -325,6 +339,7 @@ impl<'a> Builder<'a> {
                     name: (*item_name).to_owned(),
                     value: *value,
                     summary: doc_item.and_then(|item| item.summary.clone()),
+                    description: doc_item.and_then(|item| item.description.clone()),
                     deprecated: doc_item.is_some_and(Member::deprecated),
                     deprecation_message: doc_item.and_then(|item| item.deprecation_message.clone()),
                 },
@@ -334,7 +349,6 @@ impl<'a> Builder<'a> {
         self.enums.insert(
             name.to_owned(),
             Enum {
-                name: name.to_owned(),
                 summary: doc.and_then(|doc| doc.summary.clone()),
                 description: doc.and_then(|doc| doc.description.clone()),
                 deprecated: doc.is_some_and(Doc::deprecated),
@@ -615,12 +629,12 @@ fn property_kind(kind: &PropertyKind<'_>) -> (String, String, Option<String>, Ve
     }
 }
 
-struct PropertyCheck<'a> {
-    class_name: &'a str,
-    property_name: &'a str,
-    data_type: &'a PropertyType,
-    serialization: &'a str,
-    doc: Option<&'a Member>,
+struct PropertyCheck<'property> {
+    class_name: &'property str,
+    property_name: &'property str,
+    data_type: &'property PropertyType,
+    serialization: &'property str,
+    doc: Option<&'property Member>,
     supported: bool,
 }
 
@@ -877,7 +891,7 @@ fn tracker_type(member: &tracker::Member) -> Option<String> {
 }
 
 fn definition_ref(parts: &[&str]) -> String {
-    crate::pointer::path(&parts.join("/"))
+    pointer::path(&parts.join("/"))
 }
 
 fn singular(kind: &str) -> &str {
@@ -885,5 +899,36 @@ fn singular(kind: &str) -> &str {
         "property"
     } else {
         kind.strip_suffix('s').unwrap_or(kind)
+    }
+}
+
+fn enrich_property(property: &mut Property, member: &tracker::Member) {
+    property.tags.extend(
+        member
+            .tags
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_owned),
+    );
+
+    property.tags.sort();
+    property.tags.dedup();
+
+    if property.security.is_none() {
+        property.security.clone_from(&member.security);
+    }
+
+    if property.thread_safety.is_none() {
+        property.thread_safety.clone_from(&member.thread_safety);
+    }
+
+    if property.docs_serialization.is_none() {
+        property
+            .docs_serialization
+            .clone_from(&member.serialization);
+    }
+
+    if property.capabilities.is_none() {
+        property.capabilities.clone_from(&member.capabilities);
     }
 }

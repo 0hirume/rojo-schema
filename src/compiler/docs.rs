@@ -1,17 +1,19 @@
 use std::{
     collections::BTreeMap,
-    fs,
+    fs, io,
     path::{Path, PathBuf},
+    result,
 };
 
-use anyhow::{bail, Context, Result};
-use serde::Deserialize;
+use eyre::{Context as _, ContextCompat as _, Result, bail, ensure};
+use serde::{Deserialize, Deserializer};
 use serde_json::Value;
+use url::Url;
 
-use crate::model::DeprecationOverride;
+use super::{model::DeprecationOverride, presentation};
 
 #[derive(Debug, Clone, Default)]
-pub struct Catalog {
+pub(super) struct Catalog {
     pub studio_version: String,
     pub classes: BTreeMap<String, Doc>,
     pub enums: BTreeMap<String, Doc>,
@@ -21,20 +23,34 @@ pub struct Catalog {
     pub deprecation_overrides: Vec<DeprecationOverride>,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct Doc {
+#[derive(Debug, Clone, Default, Deserialize)]
+pub(super) struct Doc {
     pub name: String,
+
+    #[serde(rename = "type")]
     pub kind: String,
+
+    #[serde(default, deserialize_with = "text")]
     pub summary: Option<String>,
+
+    #[serde(default, deserialize_with = "text")]
     pub description: Option<String>,
+
+    #[serde(default, deserialize_with = "strings")]
     pub tags: Vec<String>,
+
+    #[serde(default, deserialize_with = "text")]
     pub deprecation_message: Option<String>,
+
+    #[serde(default, deserialize_with = "strings")]
     pub inherits: Vec<String>,
+
+    #[serde(skip)]
     pub members: BTreeMap<String, Vec<Member>>,
 }
 
 impl Doc {
-    pub fn deprecated(&self) -> bool {
+    pub(super) fn deprecated(&self) -> bool {
         self.tags.iter().any(|tag| tag == "Deprecated")
             || self
                 .deprecation_message
@@ -42,7 +58,7 @@ impl Doc {
                 .is_some_and(|text| !text.is_empty())
     }
 
-    pub fn member(&self, kind: &str, short_name: &str) -> Option<&Member> {
+    pub(super) fn member(&self, kind: &str, short_name: &str) -> Option<&Member> {
         self.members.get(kind)?.iter().find(|member| {
             member.name == short_name
                 || member
@@ -53,24 +69,40 @@ impl Doc {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct Member {
+#[derive(Debug, Clone, Default, Deserialize)]
+pub(super) struct Member {
     pub name: String,
+
+    #[serde(rename = "type")]
     pub data_type: Option<String>,
+
     pub value: Option<u32>,
+
+    #[serde(default, deserialize_with = "text")]
     pub summary: Option<String>,
+
+    #[serde(default, deserialize_with = "text")]
     pub description: Option<String>,
+
+    #[serde(default, deserialize_with = "strings")]
     pub tags: Vec<String>,
+
+    #[serde(default, deserialize_with = "text")]
     pub deprecation_message: Option<String>,
+
     pub security: Option<Value>,
     pub thread_safety: Option<String>,
     pub serialization: Option<Value>,
+
+    #[serde(default, deserialize_with = "strings")]
     pub capabilities: Vec<String>,
+
+    #[serde(skip)]
     pub deprecation_warning_suppressed: bool,
 }
 
 impl Member {
-    pub fn deprecated(&self) -> bool {
+    pub(super) fn deprecated(&self) -> bool {
         !self.deprecation_warning_suppressed
             && (self.tags.iter().any(|tag| tag == "Deprecated")
                 || self
@@ -92,7 +124,22 @@ struct Deprecation {
     reason: String,
 }
 
-pub fn engine_root(path: &Path) -> Result<PathBuf> {
+#[derive(Deserialize)]
+struct Document {
+    #[serde(flatten)]
+    doc: Doc,
+
+    properties: Option<Vec<Member>>,
+    methods: Option<Vec<Member>>,
+    events: Option<Vec<Member>>,
+    callbacks: Option<Vec<Member>>,
+    items: Option<Vec<Member>>,
+    constructors: Option<Vec<Member>>,
+    constants: Option<Vec<Member>>,
+    functions: Option<Vec<Member>>,
+}
+
+pub(super) fn engine_root(path: &Path) -> Result<PathBuf> {
     let direct = path.join("classes");
 
     if direct.is_dir() && path.join("STUDIO_VERSION").is_file() {
@@ -111,7 +158,7 @@ pub fn engine_root(path: &Path) -> Result<PathBuf> {
     )
 }
 
-pub fn load(path: &Path) -> Result<Catalog> {
+pub(super) fn load(path: &Path) -> Result<Catalog> {
     let root = engine_root(path)?;
 
     let studio_version = fs::read_to_string(root.join("STUDIO_VERSION"))
@@ -133,7 +180,7 @@ pub fn load(path: &Path) -> Result<Catalog> {
     catalog.globals = load_dir(&root.join("globals"))?;
     catalog.libraries = load_dir(&root.join("libraries"))?;
 
-    let deprecations = toml::from_str(include_str!("../deprecations.toml"))
+    let deprecations = toml::from_str(include_str!("../../deprecations.toml"))
         .context("parsing embedded deprecations.toml")?;
 
     catalog.deprecation_overrides = apply_deprecations(&mut catalog, &deprecations)?;
@@ -201,7 +248,7 @@ fn load_dir(path: &Path) -> Result<BTreeMap<String, Doc>> {
     let mut paths = fs::read_dir(path)
         .with_context(|| format!("reading docs directory {}", path.display()))?
         .map(|entry| entry.map(|entry| entry.path()))
-        .collect::<std::io::Result<Vec<_>>>()?;
+        .collect::<io::Result<Vec<_>>>()?;
 
     paths.retain(|path| {
         path.extension()
@@ -216,177 +263,101 @@ fn load_dir(path: &Path) -> Result<BTreeMap<String, Doc>> {
         let text = fs::read_to_string(&path)
             .with_context(|| format!("reading docs file {}", path.display()))?;
 
-        let value: Value = serde_yaml::from_str(&text)
-            .with_context(|| format!("parsing docs file {}", path.display()))?;
+        let document: Document =
+            serde_path_to_error::deserialize(yaml_serde::Deserializer::from_str(&text))
+                .with_context(|| format!("parsing docs file {}", path.display()))?;
 
-        let doc = parse_doc(&value)
-            .with_context(|| format!("normalizing docs file {}", path.display()))?;
+        let mut doc = document.doc;
 
-        docs.insert(doc.name.clone(), doc);
+        ensure!(
+            !doc.name.trim().is_empty(),
+            "empty document name in {}",
+            path.display()
+        );
+
+        doc.members = [
+            ("properties", document.properties),
+            ("methods", document.methods),
+            ("events", document.events),
+            ("callbacks", document.callbacks),
+            ("items", document.items),
+            ("constructors", document.constructors),
+            ("constants", document.constants),
+            ("functions", document.functions),
+        ]
+        .into_iter()
+        .map(|(kind, members)| (kind.to_owned(), members.unwrap_or_default()))
+        .collect();
+
+        for member in doc.members.values().flatten() {
+            ensure!(
+                !member.name.trim().is_empty(),
+                "empty member name in {}",
+                path.display()
+            );
+        }
+
+        let name = doc.name.clone();
+
+        let directory = path
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            .context("documentation directory has no name")?;
+
+        let base = Url::parse(&format!(
+            "https://create.roblox.com/docs/reference/engine/{directory}/{name}"
+        ))
+        .context("building documentation URL")?;
+
+        for text in [
+            &mut doc.summary,
+            &mut doc.description,
+            &mut doc.deprecation_message,
+        ] {
+            *text = text
+                .as_deref()
+                .map(|text| presentation::markdown(text, &base))
+                .transpose()?;
+        }
+
+        for member in doc.members.values_mut().flatten() {
+            let mut base = base.clone();
+
+            let name = member
+                .name
+                .rsplit_once('.')
+                .map_or(member.name.as_str(), |(_, name)| name);
+
+            base.set_fragment(Some(name.trim_end_matches("()")));
+
+            for text in [
+                &mut member.summary,
+                &mut member.description,
+                &mut member.deprecation_message,
+            ] {
+                *text = text
+                    .as_deref()
+                    .map(|text| presentation::markdown(text, &base))
+                    .transpose()?;
+            }
+        }
+
+        ensure!(
+            docs.insert(name.clone(), doc).is_none(),
+            "duplicate documentation name: {name}"
+        );
     }
 
     Ok(docs)
 }
 
-fn parse_doc(value: &Value) -> Result<Doc> {
-    let name = string(value, "name").context("missing name")?;
-    let kind = string(value, "type").context("missing type")?;
-    let mut members = BTreeMap::new();
-
-    for member_kind in [
-        "properties",
-        "methods",
-        "events",
-        "callbacks",
-        "items",
-        "constructors",
-        "constants",
-        "functions",
-    ] {
-        let parsed = value
-            .get(member_kind)
-            .and_then(Value::as_array)
-            .map(|items| items.iter().map(parse_member).collect::<Vec<_>>())
-            .unwrap_or_default();
-
-        members.insert(member_kind.to_owned(), parsed);
-    }
-
-    Ok(Doc {
-        name,
-        kind,
-        summary: text(value, "summary"),
-        description: text(value, "description"),
-        tags: strings(value, "tags"),
-        deprecation_message: text(value, "deprecation_message"),
-        inherits: strings(value, "inherits"),
-        members,
-    })
-}
-
-fn parse_member(value: &Value) -> Member {
-    Member {
-        name: string(value, "name").unwrap_or_else(|| "<unnamed>".to_owned()),
-        data_type: string(value, "type"),
-        value: value
-            .get("value")
-            .and_then(Value::as_u64)
-            .and_then(|value| u32::try_from(value).ok()),
-        summary: text(value, "summary"),
-        description: text(value, "description"),
-        tags: strings(value, "tags"),
-        deprecation_message: text(value, "deprecation_message"),
-        security: value.get("security").cloned().filter(not_null),
-        thread_safety: string(value, "thread_safety"),
-        serialization: value.get("serialization").cloned().filter(not_null),
-        capabilities: strings(value, "capabilities"),
-        deprecation_warning_suppressed: false,
-    }
-}
-
-fn not_null(value: &Value) -> bool {
-    !value.is_null()
-}
-
-fn string(value: &Value, key: &str) -> Option<String> {
-    value.get(key)?.as_str().map(ToOwned::to_owned)
-}
-
-fn text(value: &Value, key: &str) -> Option<String> {
-    string(value, key)
+fn text<'de, D: Deserializer<'de>>(deserializer: D) -> result::Result<Option<String>, D::Error> {
+    Ok(Option::<String>::deserialize(deserializer)?
         .map(|text| text.trim().to_owned())
-        .filter(|text| !text.is_empty())
+        .filter(|text| !text.is_empty()))
 }
 
-fn strings(value: &Value, key: &str) -> Vec<String> {
-    value
-        .get(key)
-        .and_then(Value::as_array)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(Value::as_str)
-                .map(ToOwned::to_owned)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn catalog(message: &str) -> Catalog {
-        let mut class = Doc {
-            name: "Lighting".to_owned(),
-            ..Doc::default()
-        };
-
-        class.members.insert(
-            "properties".to_owned(),
-            vec![Member {
-                name: "Lighting.Technology".to_owned(),
-                description: Some("Lighting mode.".to_owned()),
-                deprecation_message: Some(message.to_owned()),
-                ..Member::default()
-            }],
-        );
-
-        Catalog {
-            classes: BTreeMap::from([("Lighting".to_owned(), class)]),
-            ..Catalog::default()
-        }
-    }
-
-    fn deprecations() -> Deprecations {
-        Deprecations {
-            properties: BTreeMap::from([(
-                "Lighting.Technology".to_owned(),
-                Deprecation {
-                    reason: "Required for compatibility.".to_owned(),
-                },
-            )]),
-        }
-    }
-
-    #[test]
-    fn applies_deprecation_override() {
-        let mut catalog = catalog("Superseded by newer lighting controls.");
-        let applied = apply_deprecations(&mut catalog, &deprecations()).unwrap();
-
-        let property = catalog.classes["Lighting"]
-            .member("properties", "Technology")
-            .unwrap();
-
-        assert!(!property.deprecated());
-        assert!(property.deprecation_message.is_none());
-
-        assert!(property
-            .description
-            .as_deref()
-            .unwrap()
-            .contains("Superseded by newer lighting controls."));
-
-        assert_eq!(applied[0].property, "Lighting.Technology");
-    }
-
-    #[test]
-    fn rejects_missing_deprecation_message() {
-        let mut catalog = catalog("Superseded.");
-
-        catalog
-            .classes
-            .get_mut("Lighting")
-            .unwrap()
-            .members
-            .get_mut("properties")
-            .unwrap()[0]
-            .deprecation_message = None;
-
-        let error = apply_deprecations(&mut catalog, &deprecations())
-            .unwrap_err()
-            .to_string();
-
-        assert!(error.contains("deprecation message missing"));
-    }
+fn strings<'de, D: Deserializer<'de>>(deserializer: D) -> result::Result<Vec<String>, D::Error> {
+    Ok(Option::<Vec<String>>::deserialize(deserializer)?.unwrap_or_default())
 }

@@ -1,0 +1,25 @@
+{
+  "valid": [
+    {
+      "name": "example",
+      "tree": {
+        "$className": "DataModel",
+        "Workspace": {
+          "Part": {
+            "$className": "Part",
+            "$properties": { "Anchored": true, "Position": [1, 2, 3] }
+          },
+          "Terrain": {}
+        }
+      },
+      "syncRules": [{ "pattern": "**/*.server.luau", "use": "serverScript" }]
+    },
+    { "tree": { "$path": "assets", "$properties": { "Anchored": true } } }
+  ],
+  "invalid": [
+    { "name": "missing tree" },
+    { "tree": { "$className": "Part", "$path": 42 } },
+    { "tree": { "$className": "NotAClass" } },
+    { "tree": { "$className": "Part", "$properties": { "Text": "cross-class" } } }
+  ]
+}

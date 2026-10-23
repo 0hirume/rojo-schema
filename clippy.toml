@@ -1,0 +1,1 @@
+allowed-duplicate-crates = ["bitflags", "getrandom", "syn", "synstructure", "thiserror", "thiserror-impl", "unicode-width"]

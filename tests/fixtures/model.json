@@ -1,0 +1,12 @@
+{
+  "valid": [
+    { "ClassName": "Part", "Properties": { "Anchored": true } }
+  ],
+  "invalid": [
+    { "properties": {} },
+    { "className": "Part", "ClassName": "Part" },
+    { "className": "Part", "properties": { "NotAProperty": true } },
+    { "ClassName": "Part", "Properties": { "Text": "cross-class" } },
+    { "ClassName": "NotAClass" }
+  ]
+}

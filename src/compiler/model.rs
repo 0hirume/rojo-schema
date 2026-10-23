@@ -4,7 +4,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
-pub struct Api {
+pub(super) struct Api {
     pub studio_version: String,
     pub reflection_version: String,
     pub classes: BTreeMap<String, Class>,
@@ -18,7 +18,7 @@ pub struct Api {
 }
 
 #[derive(Debug, Clone)]
-pub struct Class {
+pub(super) struct Class {
     pub name: String,
     pub superclass: Option<String>,
     pub tags: Vec<String>,
@@ -29,15 +29,8 @@ pub struct Class {
     pub properties: BTreeMap<String, Property>,
 }
 
-impl Class {
-    #[must_use]
-    pub fn is_service(&self) -> bool {
-        self.tags.iter().any(|tag| tag == "Service")
-    }
-}
-
 #[derive(Debug, Clone)]
-pub struct Property {
+pub(super) struct Property {
     pub name: String,
     pub owner: String,
     pub data_type: PropertyType,
@@ -55,18 +48,18 @@ pub struct Property {
     pub security: Option<Value>,
     pub thread_safety: Option<String>,
     pub docs_serialization: Option<Value>,
-    pub capabilities: Vec<String>,
+    pub capabilities: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PropertyType {
+pub(super) enum PropertyType {
     Enum(String),
     Value(String),
 }
 
 impl PropertyType {
     #[must_use]
-    pub fn name(&self) -> &str {
+    pub(super) fn name(&self) -> &str {
         match self {
             Self::Enum(name) | Self::Value(name) => name,
         }
@@ -74,8 +67,7 @@ impl PropertyType {
 }
 
 #[derive(Debug, Clone)]
-pub struct Enum {
-    pub name: String,
+pub(super) struct Enum {
     pub summary: Option<String>,
     pub description: Option<String>,
     pub deprecated: bool,
@@ -84,17 +76,18 @@ pub struct Enum {
 }
 
 #[derive(Debug, Clone)]
-pub struct EnumItem {
+pub(super) struct EnumItem {
     pub name: String,
     pub value: u32,
     pub summary: Option<String>,
+    pub description: Option<String>,
     pub deprecated: bool,
     pub deprecation_message: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum Classification {
+pub(super) enum Classification {
     Matched,
     ApiOnly,
     ReflectionOnly,
@@ -106,7 +99,7 @@ pub enum Classification {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CoverageItem {
+pub(super) struct CoverageItem {
     pub source: String,
     pub kind: String,
     pub name: String,
@@ -123,7 +116,7 @@ pub struct CoverageItem {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Diagnostic {
+pub(super) struct Diagnostic {
     pub name: String,
     pub classification: Classification,
     pub reflection: String,
@@ -132,73 +125,93 @@ pub struct Diagnostic {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DeprecationOverride {
+pub(super) struct DeprecationOverride {
     pub property: String,
     pub upstream: String,
     pub reason: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SourceInfo {
-    pub repository: String,
-    pub version: String,
-    pub sha256: String,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub revision: Option<String>,
-}
-
+/// Client Tracker API inventory counts.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientTrackerStats {
+    /// Classes in the tracker inventory.
     pub classes: usize,
+
+    /// Properties in the tracker inventory.
     pub properties: usize,
+
+    /// Methods in the tracker inventory.
     pub methods: usize,
+
+    /// Events in the tracker inventory.
     pub events: usize,
+
+    /// Callbacks in the tracker inventory.
     pub callbacks: usize,
+
+    /// Members outside the recognized categories.
     pub other_members: usize,
+
+    /// Enumerations in the tracker inventory.
     pub enums: usize,
+
+    /// Enumeration items in the tracker inventory.
     pub enum_items: usize,
 }
 
+/// Schema size, coverage, and source-conflict statistics.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Stats {
+    /// Reflected classes.
     pub classes: usize,
+
+    /// Properties before inheritance expansion.
     pub properties: usize,
+
+    /// Properties after inheritance expansion.
     pub flattened_properties: usize,
+
+    /// Reflected enumerations.
     pub enums: usize,
+
+    /// Reflected enumeration items.
     pub enum_items: usize,
+
+    /// Definitions in the project schema.
     pub project_definitions: usize,
+
+    /// Definitions in the model schema.
     pub model_definitions: usize,
+
+    /// Property value variants encountered.
     pub variant_types: usize,
+
+    /// Entries in the API coverage report.
     pub api_items: usize,
+
+    /// Disagreements among input sources.
     pub conflicts: usize,
+
+    /// Input inventory entries missing from coverage.
     pub unclassified: usize,
+
+    /// Serialized project schema size in bytes.
     pub project_schema_bytes: usize,
+
+    /// Serialized model schema size in bytes.
     pub model_schema_bytes: usize,
+
+    /// Client Tracker inventory counts.
     pub client_tracker: ClientTrackerStats,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Manifest {
-    pub generator: String,
-    pub schema_draft: String,
-    pub project_schema_id: String,
-    pub model_schema_id: String,
-    pub sources: BTreeMap<String, SourceInfo>,
+pub(super) struct Coverage {
     pub counts: Stats,
-    pub limitations: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Coverage {
-    pub sources: BTreeMap<String, String>,
-    pub counts: Stats,
-    pub classifications: BTreeMap<String, usize>,
+    pub classifications: BTreeMap<Classification, usize>,
     pub docs: BTreeMap<String, usize>,
     pub variant_types: Vec<String>,
     pub deprecation_overrides: Vec<DeprecationOverride>,

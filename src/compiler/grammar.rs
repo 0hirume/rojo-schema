@@ -1,43 +1,49 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
+    fs, io, iter,
     path::{Path, PathBuf},
 };
 
-use anyhow::{bail, ensure, Context, Result};
-use serde_json::{json, Map, Value};
+use eyre::{Context as _, ContextCompat as _, Result, bail, ensure};
+use serde_json::{Map, Value, json};
 
 use syn::{
-    meta::ParseNestedMeta,
-    visit::{self, Visit},
     AngleBracketedGenericArguments, Arm, Attribute, BinOp, Expr, ExprBinary, ExprCall, Fields,
     GenericArgument, ImplItem, Item, ItemEnum, ItemFn, ItemImpl, ItemStruct, ItemType, Lit, Meta,
     Pat, PathArguments, Stmt, Type, TypePath,
+    meta::ParseNestedMeta,
+    token::Paren,
+    visit::{self, Visit},
 };
+
+use url::Url;
+
+use super::{inference, pointer, presentation};
 
 const PROJECT: &str = "Project";
 const NODE: &str = "ProjectNode";
 const MODEL: &str = "JsonModel";
 
 #[derive(Debug, Clone)]
-pub struct Grammar {
+pub(super) struct Grammar {
     pub project: Value,
     pub definitions: Map<String, Value>,
     pub compact: BTreeMap<String, Value>,
     pub inferred: BTreeMap<String, Inference>,
+    pub path_rules: Vec<inference::Rule>,
     pub tree: String,
     pub node: Node,
     pub model: Model,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Inference {
+pub(super) struct Inference {
     pub names: BTreeSet<String>,
     pub tags: BTreeSet<String>,
 }
 
 #[derive(Debug, Clone)]
-pub struct Node {
+pub(super) struct Node {
     pub schema: Value,
     pub class: String,
     pub properties: String,
@@ -45,15 +51,16 @@ pub struct Node {
 }
 
 #[derive(Debug, Clone)]
-pub struct Model {
+pub(super) struct Model {
     pub schema: Value,
     pub class: Field,
+    pub name: Field,
     pub properties: Field,
     pub children: Field,
 }
 
 #[derive(Debug, Clone)]
-pub struct Field {
+pub(super) struct Field {
     pub name: String,
     pub aliases: Vec<String>,
 }
@@ -68,7 +75,7 @@ struct Definitions {
     inferred: BTreeMap<String, Inference>,
 }
 
-pub fn load(root: &Path) -> Result<Grammar> {
+pub(super) fn load(root: &Path) -> Result<Grammar> {
     let mut definitions = Definitions::default();
 
     for path in rust_files(root)? {
@@ -117,6 +124,7 @@ pub fn load(root: &Path) -> Result<Grammar> {
         definitions: builder.output,
         compact,
         inferred: definitions.inferred,
+        path_rules: inference::load(root)?,
         tree,
         node: Node {
             schema,
@@ -127,6 +135,7 @@ pub fn load(root: &Path) -> Result<Grammar> {
         model: Model {
             schema: model_schema,
             class: model.class,
+            name: model.name,
             properties: model.properties,
             children: model.children,
         },
@@ -138,7 +147,7 @@ fn rust_files(root: &Path) -> Result<Vec<PathBuf>> {
         let mut entries = fs::read_dir(current)
             .with_context(|| format!("reading {}", current.display()))?
             .map(|entry| entry.map(|entry| entry.path()))
-            .collect::<std::io::Result<Vec<_>>>()?;
+            .collect::<io::Result<Vec<_>>>()?;
 
         entries.sort();
 
@@ -265,10 +274,10 @@ impl<'ast> Visit<'ast> for InferenceVisitor {
     fn visit_expr_path(&mut self, node: &'ast syn::ExprPath) {
         let mut segments = node.path.segments.iter().rev();
 
-        if let (Some(tag), Some(owner)) = (segments.next(), segments.next()) {
-            if owner.ident == "ClassTag" {
-                self.tags.insert(tag.ident.to_string());
-            }
+        if let (Some(tag), Some(owner)) = (segments.next(), segments.next())
+            && owner.ident == "ClassTag"
+        {
+            self.tags.insert(tag.ident.to_string());
         }
 
         visit::visit_expr_path(self, node);
@@ -335,10 +344,10 @@ fn collect_impl(item: &ItemImpl, definitions: &mut Definitions) -> Result<()> {
         let mut visitor = CompactResolver::default();
 
         for member in &item.items {
-            if let ImplItem::Fn(method) = member {
-                if method.sig.ident == "resolve" {
-                    visitor.visit_block(&method.block);
-                }
+            if let ImplItem::Fn(method) = member
+                && method.sig.ident == "resolve"
+            {
+                visitor.visit_block(&method.block);
             }
         }
 
@@ -389,10 +398,10 @@ struct CompactResolver {
 
 impl<'ast> Visit<'ast> for CompactResolver {
     fn visit_arm(&mut self, node: &'ast Arm) {
-        if expression_calls(&node.body, "Ok") {
-            if let Some(value) = resolution_pair(&node.pat) {
-                self.values.push(value);
-            }
+        if expression_calls(&node.body, "Ok")
+            && let Some(value) = resolution_pair(&node.pat)
+        {
+            self.values.push(value);
         }
 
         visit::visit_arm(self, node);
@@ -400,22 +409,21 @@ impl<'ast> Visit<'ast> for CompactResolver {
 }
 
 #[derive(Default)]
-struct CallFinder<'a> {
-    name: &'a str,
+struct CallFinder<'name> {
+    name: &'name str,
     found: bool,
 }
 
 impl<'ast> Visit<'ast> for CallFinder<'_> {
     fn visit_expr_call(&mut self, node: &'ast ExprCall) {
-        if let Expr::Path(path) = node.func.as_ref() {
-            if path
+        if let Expr::Path(path) = node.func.as_ref()
+            && path
                 .path
                 .segments
                 .last()
                 .is_some_and(|segment| segment.ident == self.name)
-            {
-                self.found = true;
-            }
+        {
+            self.found = true;
         }
 
         visit::visit_expr_call(self, node);
@@ -528,6 +536,7 @@ fn node_roles(definitions: &Definitions) -> Result<Roles> {
 
 struct ModelRoles {
     class: Field,
+    name: Field,
     properties: Field,
     children: Field,
 }
@@ -542,6 +551,7 @@ fn model_roles(definitions: &Definitions) -> Result<ModelRoles> {
 
     Ok(ModelRoles {
         class: model_field(model, "class_name", &attributes)?,
+        name: model_field(model, "name", &attributes)?,
         properties: model_field(model, "properties", &attributes)?,
         children: model_field(model, "children", &attributes)?,
     })
@@ -593,14 +603,14 @@ fn compact_schemas(
         .collect()
 }
 
-struct Builder<'a> {
-    definitions: &'a Definitions,
+struct Builder<'definitions> {
+    definitions: &'definitions Definitions,
     output: Map<String, Value>,
     building: BTreeSet<String>,
 }
 
-impl<'a> Builder<'a> {
-    fn new(definitions: &'a Definitions) -> Self {
+impl<'definitions> Builder<'definitions> {
+    fn new(definitions: &'definitions Definitions) -> Self {
         Self {
             definitions,
             output: Map::new(),
@@ -774,21 +784,21 @@ impl<'a> Builder<'a> {
 
                     let name = field_name(field, attributes.rename_all.as_deref())?;
                     let mut value = self.ty(&field.ty)?;
-                    describe(&mut value, &field.attrs);
+                    describe(&mut value, &field.attrs)?;
 
                     if field_attributes.aliases.is_empty() {
                         if !is_option(&field.ty) && !field_attributes.default {
                             required.push(name.clone());
                         }
                     } else if !is_option(&field.ty) && !field_attributes.default {
-                        let options = std::iter::once(&name)
+                        let options = iter::once(&name)
                             .chain(&field_attributes.aliases)
                             .map(|name| json!({ "required": [name] }))
                             .collect::<Vec<_>>();
 
                         alias_rules.push(json!({ "oneOf": options }));
                     } else {
-                        let names = std::iter::once(&name)
+                        let names = iter::once(&name)
                             .chain(&field_attributes.aliases)
                             .collect::<Vec<_>>();
 
@@ -848,7 +858,7 @@ impl<'a> Builder<'a> {
             Fields::Unit => json!({ "type": "null" }),
         };
 
-        describe(&mut schema, &item.attrs);
+        describe(&mut schema, &item.attrs)?;
 
         Ok(schema)
     }
@@ -873,7 +883,7 @@ impl<'a> Builder<'a> {
             json!({ "anyOf": variants })
         };
 
-        describe(&mut schema, &item.attrs);
+        describe(&mut schema, &item.attrs)?;
 
         Ok(schema)
     }
@@ -1035,8 +1045,8 @@ impl FieldAttrs {
 
 fn discard_meta(meta: &ParseNestedMeta<'_>) -> syn::Result<()> {
     if meta.input.peek(syn::Token![=]) {
-        let _: Expr = meta.value()?.parse()?;
-    } else if meta.input.peek(syn::token::Paren) {
+        drop(meta.value()?.parse::<Expr>()?);
+    } else if meta.input.peek(Paren) {
         meta.parse_nested_meta(|nested| discard_meta(&nested))?;
     }
 
@@ -1209,7 +1219,7 @@ fn tuple_schema(items: &[Value]) -> Value {
     })
 }
 
-fn describe(schema: &mut Value, attributes: &[Attribute]) {
+fn describe(schema: &mut Value, attributes: &[Attribute]) -> Result<()> {
     let description = attributes
         .iter()
         .filter_map(|attribute| {
@@ -1231,16 +1241,24 @@ fn describe(schema: &mut Value, attributes: &[Attribute]) {
 
             Some(value.value().trim().to_owned())
         })
-        .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
 
     if !description.is_empty() {
-        schema
-            .as_object_mut()
-            .expect("schema object")
-            .insert("description".to_owned(), json!(description));
+        let markdown =
+            presentation::markdown(&description, &Url::parse("https://rojo.space/docs/")?)?;
+
+        let object = schema.as_object_mut().expect("schema object");
+
+        object.insert(
+            "description".to_owned(),
+            json!(presentation::plaintext(&markdown)),
+        );
+
+        object.insert("markdownDescription".to_owned(), json!(markdown));
     }
+
+    Ok(())
 }
 
 fn definition_key(name: &str) -> String {
@@ -1248,36 +1266,5 @@ fn definition_key(name: &str) -> String {
 }
 
 fn reference(key: &str) -> Value {
-    crate::pointer::reference(key)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::env;
-
-    use super::*;
-
-    #[test]
-    fn extracts_rojo_grammars() {
-        let rojo = env::var_os("ROJO_SCHEMA_ROJO").expect("ROJO_SCHEMA_ROJO is not set");
-        let grammar = load(&PathBuf::from(rojo).join("src")).unwrap();
-        assert_eq!(grammar.project["required"], json!(["tree"]));
-        assert!(grammar.definitions.contains_key("rojo/ProjectNode"));
-        assert!(grammar.definitions.contains_key("rojo/JsonModel"));
-        assert_eq!(grammar.model.class.name, "className");
-        assert_eq!(grammar.model.class.aliases, ["ClassName"]);
-        assert!(grammar.model.schema["properties"]["properties"].is_object());
-        assert!(grammar.model.schema["properties"]["Properties"].is_object());
-        assert_eq!(grammar.compact["Bool"], json!({ "type": "boolean" }));
-        assert_eq!(grammar.compact["CFrame"]["type"], "array");
-        assert!(!grammar.compact.contains_key("Ref"));
-        assert!(grammar.inferred["DataModel"].tags.contains("Service"));
-
-        assert!(grammar.inferred["StarterPlayer"]
-            .names
-            .contains("StarterPlayerScripts"));
-
-        assert!(grammar.inferred["Workspace"].names.contains("Terrain"));
-        assert_eq!(grammar.tree, "tree");
-    }
+    pointer::reference(key)
 }

@@ -1,17 +1,23 @@
-use std::collections::{BTreeMap, BTreeSet};
-
-use anyhow::{bail, ensure, Context, Result};
-use serde_json::{json, Map, Value};
-
-use crate::{
-    format::Formats,
-    grammar::{Field, Grammar, Model, Node},
-    model::{Api, Class, Property, PropertyType},
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Write as _,
+    iter,
 };
 
-pub const DRAFT: &str = "https://json-schema.org/draft/2020-12/schema";
+use eyre::{ContextCompat as _, Result, bail, ensure};
+use serde_json::{Map, Value, json};
 
-pub struct Output {
+use super::{
+    format::Formats,
+    grammar::{Field, Grammar, Model, Node},
+    inference,
+    model::{Api, Class, Property, PropertyType},
+    pointer, presentation,
+};
+
+pub(super) const DRAFT: &str = "https://json-schema.org/draft/2020-12/schema";
+
+pub(super) struct Output {
     pub project: Value,
     pub model: Value,
     pub flattened_properties: usize,
@@ -19,11 +25,12 @@ pub struct Output {
     pub model_definitions: usize,
 }
 
-pub fn build(
+pub(super) fn build(
     api: &Api,
     rojo_version: &str,
     grammar: &Grammar,
     formats: &Formats,
+    docs: &super::docs::Catalog,
 ) -> Result<Output> {
     let homepage = env!("CARGO_PKG_HOMEPAGE").trim_end_matches('/');
     let project_id = format!("{homepage}/latest/project.schema.json");
@@ -31,6 +38,18 @@ pub fn build(
     let mut definitions = formats.definitions.clone();
     definitions.extend(grammar.definitions.clone());
     link_external_formats(&mut definitions, formats);
+
+    datatype_annotations(&mut definitions, docs, api);
+
+    if let Some(value) = definitions
+        .get_mut(&format!("rojo/{}", grammar.node.value))
+        .and_then(Value::as_object_mut)
+    {
+        for annotation in ["description", "markdownDescription", "title"] {
+            value.remove(annotation);
+        }
+    }
+
     definitions.extend(enum_definitions(api));
     definitions.extend(property_definitions(api, grammar, &formats.enum_variant));
     let (properties, flattened_properties) = properties_definitions(api)?;
@@ -38,7 +57,6 @@ pub fn build(
 
     let mut project_definitions = definitions.clone();
     project_definitions.extend(node_definitions(api, grammar)?);
-    let project_definition_count = project_definitions.len();
     let mut project = grammar.project.clone();
 
     let root = project
@@ -47,7 +65,6 @@ pub fn build(
 
     root.insert("$schema".to_owned(), json!(DRAFT));
     root.insert("$id".to_owned(), json!(project_id));
-    root.insert("title".to_owned(), json!("Rojo project"));
 
     root.insert(
         "description".to_owned(),
@@ -57,10 +74,36 @@ pub fn build(
         )),
     );
 
-    root.get_mut("properties")
+    let fields = root
+        .get_mut("properties")
         .and_then(Value::as_object_mut)
-        .context("Rojo Project schema has no property map")?
-        .insert(grammar.tree.clone(), reference("node/Any"));
+        .context("Rojo Project schema has no property map")?;
+
+    let mut tree = reference("node/Any");
+
+    annotate(
+        &mut tree,
+        Some(
+            "The root instance and its descendants. Child keys name instances; `$`-prefixed keys configure each instance.",
+        ),
+        None,
+        false,
+        None,
+    );
+
+    fields.insert(grammar.tree.clone(), tree);
+
+    if let Some(schema) = fields.get_mut("$schema") {
+        annotate(
+            schema,
+            Some(
+                "The schema URI used by your editor for completion and validation. Local absolute paths must use a `file:///` URI.",
+            ),
+            None,
+            false,
+            None,
+        );
+    }
 
     root.insert("$defs".to_owned(), Value::Object(project_definitions));
 
@@ -68,10 +111,9 @@ pub fn build(
     model_definitions.extend(model_definitions_for(api, grammar)?);
     let model_definition_count = model_definitions.len();
 
-    let model = json!({
+    let mut model = json!({
         "$schema": DRAFT,
         "$id": model_id,
-        "title": "Rojo model",
         "description": format!(
             "Rojo {rojo_version} JSON model file targeting Roblox reflection {} and Creator Docs Studio {}.",
             api.reflection_version, api.studio_version
@@ -80,6 +122,16 @@ pub fn build(
         "$defs": model_definitions
     });
 
+    inference::apply(&mut project, grammar)?;
+
+    let project_definition_count = project["$defs"]
+        .as_object()
+        .context("project definitions are missing")?
+        .len();
+
+    presentation::schema(&mut project, "project");
+    presentation::schema(&mut model, "model");
+
     Ok(Output {
         project,
         model,
@@ -87,6 +139,78 @@ pub fn build(
         project_definitions: project_definition_count,
         model_definitions: model_definition_count,
     })
+}
+
+fn datatype_annotations(
+    definitions: &mut Map<String, Value>,
+    docs: &super::docs::Catalog,
+    api: &Api,
+) {
+    for (name, doc) in &docs.datatypes {
+        if let Some(schema) = definitions.get_mut(&format!("serde/{name}")) {
+            annotate(
+                schema,
+                doc.summary.as_deref(),
+                doc.description.as_deref(),
+                doc.deprecated(),
+                doc.deprecation_message.as_deref(),
+            );
+        }
+
+        if let Some(value) = definitions
+            .get_mut(&format!("value/{name}"))
+            .and_then(|schema| schema.get_mut("properties"))
+            .and_then(|fields| fields.get_mut(name))
+        {
+            annotate(
+                value,
+                doc.summary.as_deref(),
+                doc.description.as_deref(),
+                doc.deprecated(),
+                doc.deprecation_message.as_deref(),
+            );
+        }
+    }
+
+    for property in api
+        .classes
+        .values()
+        .flat_map(|class| class.properties.values())
+    {
+        let PropertyType::Value(name) = &property.data_type else {
+            continue;
+        };
+
+        let Some(default) = &property.default else {
+            continue;
+        };
+
+        let Some(schema) = definitions
+            .get_mut(&format!("value/{name}"))
+            .and_then(Value::as_object_mut)
+        else {
+            continue;
+        };
+
+        schema.entry("examples").or_insert_with(|| json!([default]));
+
+        schema
+            .entry("defaultSnippets")
+            .or_insert_with(|| json!([{ "label": "Reflected value", "body": default }]));
+
+        if let Some(value) = schema
+            .get_mut("properties")
+            .and_then(|fields| fields.get_mut(name))
+            .and_then(Value::as_object_mut)
+            && let Some(payload) = default.get(name)
+        {
+            value.entry("examples").or_insert_with(|| json!([payload]));
+
+            value
+                .entry("defaultSnippets")
+                .or_insert_with(|| json!([{ "label": "Reflected value", "body": payload }]));
+        }
+    }
 }
 
 fn link_external_formats(definitions: &mut Map<String, Value>, formats: &Formats) {
@@ -115,19 +239,46 @@ fn enum_definitions(api: &Api) -> Map<String, Value> {
     api.enums
         .iter()
         .map(|(name, descriptor)| {
-            let mut schema = json!({
+            let descriptions = descriptor.items.values().map(|item| {
+                let mut description = String::new();
+                let summary = item.summary.as_deref();
+
+                let detail = item.description.as_deref().or_else(|| {
+                    if summary.is_none() {
+                        descriptor.summary.as_deref().or(descriptor.description.as_deref())
+                    } else {
+                        None
+                    }
+                });
+
+                let mut documentation = json!({});
+                annotate(&mut documentation, summary, detail, false, None);
+
+                if let Some(text) = documentation.get("markdownDescription").and_then(Value::as_str) {
+                    description.push_str(text);
+                    description.push_str("\n\n");
+                }
+
+                write!(description, "Numeric value: `{}`.", item.value).expect("formatting a string");
+
+                if item.deprecated || descriptor.deprecated {
+                    description.push_str("\n\n**Deprecated**");
+
+                    if let Some(message) = item.deprecation_message.as_deref().or(descriptor.deprecation_message.as_deref()) {
+                        description.push_str("\n\n");
+                        description.push_str(message);
+                    }
+                }
+
+                description
+            }).collect::<Vec<_>>();
+
+            let schema = json!({
                 "type": "string",
                 "enum": descriptor.items.keys().collect::<Vec<_>>(),
-                "title": descriptor.name
+                "enumDescriptions": descriptions.iter().map(|text| presentation::plaintext(text)).collect::<Vec<_>>(),
+                "markdownEnumDescriptions": descriptions
             });
-
-            annotate(
-                &mut schema,
-                descriptor.summary.as_deref(),
-                descriptor.description.as_deref(),
-                descriptor.deprecated,
-                descriptor.deprecation_message.as_deref(),
-            );
 
             (format!("enum/{name}"), schema)
         })
@@ -172,15 +323,24 @@ fn properties_definitions(api: &Api) -> Result<(Map<String, Value>, usize)> {
 
         count += properties.len();
 
-        definitions.insert(
-            format!("properties/{name}"),
-            json!({
-                "type": "object",
-                "properties": properties,
-                "additionalProperties": false,
-                "default": {}
-            }),
+        let mut schema = json!({
+            "type": "object",
+            "properties": properties,
+            "additionalProperties": false,
+            "default": {}
+        });
+
+        annotate(
+            &mut schema,
+            Some(&format!(
+                "Property values for `{name}` instances, including inherited properties."
+            )),
+            None,
+            false,
+            None,
         );
+
+        definitions.insert(format!("properties/{name}"), schema);
     }
 
     Ok((definitions, count))
@@ -211,6 +371,9 @@ fn node_definitions(api: &Api, grammar: &Grammar) -> Result<Map<String, Value>> 
             class.deprecation_message.as_deref(),
         );
 
+        schema["title"] = json!(name);
+        schema["x-rojo-class"] = json!(name);
+
         definitions.insert(format!("node/{name}"), schema);
     }
 
@@ -221,6 +384,17 @@ fn node_definitions(api: &Api, grammar: &Grammar) -> Result<Map<String, Value>> 
         "node/Any".to_owned(),
         node_dispatch(generic, api, node, &inferred)?,
     );
+
+    for child in inferred.values().flatten() {
+        definitions.insert(format!("inferred/{child}"), json!({
+            "if": { "anyOf": [
+                { "properties": { node.class.clone(): { "type": "string" } }, "required": [node.class] },
+                { "properties": { "$path": { "not": { "type": "null" } } }, "required": ["$path"] }
+            ] },
+            "then": reference("node/Any"),
+            "else": reference(&format!("node/{child}"))
+        }));
+    }
 
     Ok(definitions)
 }
@@ -246,6 +420,9 @@ fn model_definitions_for(api: &Api, grammar: &Grammar) -> Result<Map<String, Val
             class.deprecated,
             class.deprecation_message.as_deref(),
         );
+
+        schema["title"] = json!(name);
+        schema["x-rojo-class"] = json!(name);
 
         definitions.insert(format!("model/{name}"), schema);
     }
@@ -278,6 +455,52 @@ fn configure_model(
         &json!({ "type": "array", "items": reference("model/Any") }),
     );
 
+    for (field, description) in [
+        (
+            &model.class,
+            "The Roblox class of this instance. Determines which properties are available.",
+        ),
+        (
+            &model.name,
+            "The name of a child instance, defaulting to its class name. Rojo ignores this field on the root and uses the model file name.",
+        ),
+        (
+            &model.properties,
+            "Property values to assign to this instance. Available properties depend on `className`.",
+        ),
+        (
+            &model.children,
+            "Child instances parented to this instance. Each child is another model object.",
+        ),
+    ] {
+        for name in model_field_names(field) {
+            let schema = fields
+                .get_mut(name)
+                .context("model field schema is missing")?;
+
+            annotate(schema, Some(description), None, false, None);
+        }
+    }
+
+    for (name, description) in [
+        (
+            "attributes",
+            "Custom Roblox attributes to assign to this instance.",
+        ),
+        (
+            "id",
+            "An identifier used to refer to this instance from referent properties.",
+        ),
+        (
+            "$schema",
+            "The schema URI used by your editor for completion and validation. Local absolute paths must use a `file:///` URI.",
+        ),
+    ] {
+        if let Some(schema) = fields.get_mut(name) {
+            annotate(schema, Some(description), None, false, None);
+        }
+    }
+
     Ok(())
 }
 
@@ -298,7 +521,7 @@ fn set_model_field(fields: &mut Map<String, Value>, field: &Field, schema: &Valu
 }
 
 fn model_field_names(field: &Field) -> impl Iterator<Item = &str> {
-    std::iter::once(field.name.as_str()).chain(field.aliases.iter().map(String::as_str))
+    iter::once(field.name.as_str()).chain(field.aliases.iter().map(String::as_str))
 }
 
 fn inferred_children(api: &Api, grammar: &Grammar) -> Result<BTreeMap<String, BTreeSet<String>>> {
@@ -341,15 +564,54 @@ fn inferred_children(api: &Api, grammar: &Grammar) -> Result<BTreeMap<String, BT
 }
 
 fn generic_properties(api: &Api, node: &Node) -> Value {
-    let names = api
-        .classes
-        .values()
-        .flat_map(|class| class.properties.keys().cloned())
-        .collect::<BTreeSet<_>>();
+    let mut candidates: BTreeMap<&str, Vec<&Property>> = BTreeMap::new();
+
+    for class in api.classes.values() {
+        for property in class.properties.values() {
+            candidates.entry(&property.name).or_default().push(property);
+        }
+    }
+
+    let properties = candidates
+        .into_iter()
+        .map(|(name, candidates)| {
+            let mut schema = reference(&format!("rojo/{}", node.value));
+
+            let types = candidates
+                .iter()
+                .map(|property| property.data_type.name())
+                .collect::<BTreeSet<_>>();
+
+            let types = types.into_iter().collect::<Vec<_>>().join(" | ");
+            schema["x-rojo-value-type"] = json!(types);
+
+            let mut description = String::new();
+
+            let summaries = candidates
+                .iter()
+                .filter_map(|property| {
+                    property
+                        .summary
+                        .as_deref()
+                        .or(property.description.as_deref())
+                })
+                .collect::<BTreeSet<_>>();
+
+            for summary in summaries {
+                description.push_str("\n\n");
+                description.push_str(summary);
+            }
+
+            annotate(&mut schema, Some(&description), None, false, None);
+
+            (name.to_owned(), schema)
+        })
+        .collect::<Map<_, _>>();
 
     json!({
         "type": "object",
-        "propertyNames": { "enum": names },
+        "propertyNames": { "enum": properties.keys().collect::<Vec<_>>() },
+        "properties": properties,
         "additionalProperties": reference(&format!("rojo/{}", node.value)),
         "default": {}
     })
@@ -391,7 +653,19 @@ fn node_dispatch(
 
             add_child_fields(&mut fields, inferred.get(name));
 
-            json!({ "properties": fields })
+            let class = &api.classes[name];
+
+            let mut schema = json!({ "properties": fields, "title": name, "x-rojo-class": name });
+
+            annotate(
+                &mut schema,
+                class.summary.as_deref().or(Some(name)),
+                class.description.as_deref(),
+                class.deprecated,
+                class.deprecation_message.as_deref(),
+            );
+
+            schema
         })
         .collect::<Vec<_>>();
 
@@ -400,6 +674,13 @@ fn node_dispatch(
     let mut fallback = Map::new();
     fallback.insert(node.class.clone(), json!({ "type": "null" }));
     fallback.insert(node.properties.clone(), properties);
+    let mut fallback = json!({ "properties": fallback });
+
+    for annotation in ["description", "markdownDescription", "title"] {
+        if let Some(value) = object.remove(annotation) {
+            fallback[annotation] = value;
+        }
+    }
 
     let dispatch = json!({
         "if": {
@@ -407,7 +688,7 @@ fn node_dispatch(
             "required": [node.class.clone()]
         },
         "then": { "oneOf": branches },
-        "else": { "properties": fallback }
+        "else": fallback
     });
 
     object
@@ -433,7 +714,7 @@ fn add_children(schema: &mut Value, children: Option<&BTreeSet<String>>) -> Resu
 
 fn add_child_fields(fields: &mut Map<String, Value>, children: Option<&BTreeSet<String>>) {
     for child in children.into_iter().flatten() {
-        fields.insert(child.clone(), reference(&format!("node/{child}")));
+        fields.insert(child.clone(), reference(&format!("inferred/{child}")));
     }
 }
 
@@ -453,10 +734,30 @@ fn configure_node(
         .context("Rojo ProjectNode schema has no property map")?;
 
     if let Some(class) = class {
-        fields.insert(node.class.clone(), json!({ "const": class }));
+        fields.insert(node.class.clone(), json!({ "enum": [class, null] }));
     }
 
     fields.insert(node.properties.clone(), properties);
+
+    for (name, description) in [
+        (
+            node.class.as_str(),
+            "The Roblox class of this instance. Determines which properties are available.",
+        ),
+        (
+            node.properties.as_str(),
+            "Property values to assign to this instance. Available properties depend on `$className` or the class inferred from `$path`.",
+        ),
+        (
+            "$attributes",
+            "Custom Roblox attributes to assign to this instance.",
+        ),
+    ] {
+        if let Some(schema) = fields.get_mut(name) {
+            annotate(schema, Some(description), None, false, None);
+        }
+    }
+
     object.insert("additionalProperties".to_owned(), reference("node/Any"));
 
     Ok(())
@@ -469,7 +770,10 @@ fn supported(api: &Api, property: &Property) -> bool {
     }
 }
 
-fn flattened<'a>(api: &'a Api, class: &'a Class) -> Result<BTreeMap<String, &'a Property>> {
+fn flattened<'source>(
+    api: &'source Api,
+    class: &'source Class,
+) -> Result<BTreeMap<String, &'source Property>> {
     let mut hierarchy = Vec::new();
     let mut current = Some(class);
     let mut seen = BTreeSet::new();
@@ -541,6 +845,12 @@ fn property_schema(
     let object = schema.as_object_mut().expect("property schema object");
     object.insert("title".to_owned(), json!(property.name));
     object.insert("x-rojo-owner".to_owned(), json!(property.owner));
+
+    object.insert(
+        "x-rojo-value-type".to_owned(),
+        json!(property.data_type.name()),
+    );
+
     object.insert("x-rojo-kind".to_owned(), json!(property.kind));
 
     object.insert(
@@ -567,6 +877,13 @@ fn property_schema(
     }
 
     if let Some(default) = default {
+        object.insert("examples".to_owned(), json!([default]));
+
+        object.insert(
+            "defaultSnippets".to_owned(),
+            json!([{ "label": "Reflected default", "body": default }]),
+        );
+
         object.insert("default".to_owned(), default);
     }
 
@@ -582,11 +899,8 @@ fn property_schema(
         object.insert("x-roblox-serialization".to_owned(), serialization.clone());
     }
 
-    if !property.capabilities.is_empty() {
-        object.insert(
-            "x-roblox-capabilities".to_owned(),
-            json!(property.capabilities),
-        );
+    if let Some(capabilities) = &property.capabilities {
+        object.insert("x-roblox-capabilities".to_owned(), capabilities.clone());
     }
 
     schema
@@ -637,28 +951,26 @@ fn accepts(value: &Value, schema: &Value, definitions: &Map<String, Value>) -> b
         });
     }
 
-    if let Some(expected) = schema.get("const") {
-        if value != expected {
-            return false;
-        }
+    if let Some(expected) = schema.get("const")
+        && value != expected
+    {
+        return false;
     }
 
-    if let Some(options) = schema.get("anyOf").and_then(Value::as_array) {
-        if !options
+    if let Some(options) = schema.get("anyOf").and_then(Value::as_array)
+        && !options
             .iter()
             .any(|option| accepts(value, option, definitions))
-        {
-            return false;
-        }
+    {
+        return false;
     }
 
-    if let Some(options) = schema.get("allOf").and_then(Value::as_array) {
-        if !options
+    if let Some(options) = schema.get("allOf").and_then(Value::as_array)
+        && !options
             .iter()
             .all(|option| accepts(value, option, definitions))
-        {
-            return false;
-        }
+    {
+        return false;
     }
 
     match schema.get("type").and_then(Value::as_str) {
@@ -718,6 +1030,10 @@ fn annotate(
     let object = schema.as_object_mut().expect("schema object");
 
     let combined = match (summary, description) {
+        (Some(summary), Some(description)) if description.starts_with(summary) => {
+            Some(description.to_owned())
+        }
+
         (Some(summary), Some(description)) if summary != description => {
             Some(format!("{summary}\n\n{description}"))
         }
@@ -728,7 +1044,12 @@ fn annotate(
     };
 
     if let Some(description) = combined {
-        object.insert("description".to_owned(), json!(description));
+        object.insert(
+            "description".to_owned(),
+            json!(presentation::plaintext(&description)),
+        );
+
+        object.insert("markdownDescription".to_owned(), json!(description));
     }
 
     if deprecated {
@@ -736,11 +1057,18 @@ fn annotate(
     }
 
     if let Some(message) = deprecation_message.filter(|message| !message.is_empty()) {
-        object.insert("deprecationMessage".to_owned(), json!(message));
-        object.insert("x-roblox-deprecation-message".to_owned(), json!(message));
+        object.insert(
+            "deprecationMessage".to_owned(),
+            json!(presentation::plaintext(message)),
+        );
+
+        object.insert(
+            "x-roblox-deprecation-message".to_owned(),
+            json!(presentation::plaintext(message)),
+        );
     }
 }
 
 fn reference(key: &str) -> Value {
-    crate::pointer::reference(key)
+    pointer::reference(key)
 }

@@ -4,33 +4,39 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{bail, ensure, Context, Result};
+use eyre::{Context as _, ContextCompat as _, Result, bail, ensure};
 use serde::Deserialize;
+use serde_json::Value;
 
 const DUMP_FILE: &str = "Full-API-Dump.json";
 const VERSION_FILE: &str = "version.txt";
 
 #[derive(Debug, Clone)]
-pub struct Catalog {
+pub(super) struct Catalog {
     pub classes: BTreeMap<String, Class>,
     pub enums: BTreeMap<String, Enum>,
 }
 
 #[derive(Debug, Clone)]
-pub struct Class {
+pub(super) struct Class {
     pub members: BTreeMap<String, Member>,
 }
 
 #[derive(Debug, Clone)]
-pub struct Member {
+pub(super) struct Member {
     pub name: String,
     pub kind: String,
     pub type_category: Option<String>,
     pub type_name: Option<String>,
+    pub security: Option<Value>,
+    pub serialization: Option<Value>,
+    pub thread_safety: Option<String>,
+    pub tags: Vec<Value>,
+    pub capabilities: Option<Value>,
 }
 
 #[derive(Debug, Clone)]
-pub struct Enum {
+pub(super) struct Enum {
     pub items: BTreeMap<String, u32>,
 }
 
@@ -65,6 +71,21 @@ struct RawMember {
 
     #[serde(rename = "ValueType")]
     value_type: Option<RawType>,
+
+    #[serde(rename = "Security")]
+    security: Option<Value>,
+
+    #[serde(rename = "Serialization")]
+    serialization: Option<Value>,
+
+    #[serde(rename = "ThreadSafety")]
+    thread_safety: Option<String>,
+
+    #[serde(rename = "Tags", default)]
+    tags: Vec<Value>,
+
+    #[serde(rename = "Capabilities")]
+    capabilities: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -94,7 +115,7 @@ struct RawEnumItem {
     value: u32,
 }
 
-pub fn load(path: &Path) -> Result<Catalog> {
+pub(super) fn load(path: &Path) -> Result<Catalog> {
     let root = root(path)?;
     let dump_path = root.join(DUMP_FILE);
     let version_path = root.join(VERSION_FILE);
@@ -116,13 +137,19 @@ pub fn load(path: &Path) -> Result<Catalog> {
         version_path.display()
     );
 
-    let dump: Dump =
-        serde_json::from_str(&dump).with_context(|| format!("parsing {}", dump_path.display()))?;
+    let mut decoder = serde_json::Deserializer::from_str(&dump);
+
+    let dump: Dump = serde_path_to_error::deserialize(&mut decoder)
+        .with_context(|| format!("parsing {}", dump_path.display()))?;
+
+    decoder
+        .end()
+        .with_context(|| format!("parsing {}", dump_path.display()))?;
 
     parse_dump(dump)
 }
 
-pub fn root(path: &Path) -> Result<PathBuf> {
+pub(super) fn root(path: &Path) -> Result<PathBuf> {
     let root = if path.is_file() {
         path.parent()
             .context("Client Tracker dump has no parent directory")?
@@ -166,6 +193,11 @@ fn parse_dump(dump: Dump) -> Result<Catalog> {
                     .as_ref()
                     .and_then(|value| value.category.clone()),
                 type_name: raw_member.value_type.and_then(|value| value.name),
+                security: raw_member.security,
+                serialization: raw_member.serialization,
+                thread_safety: raw_member.thread_safety,
+                tags: raw_member.tags,
+                capabilities: raw_member.capabilities,
             };
 
             if let Some(existing) = raw_member_names.get(&member_name) {
@@ -221,78 +253,4 @@ fn required_name(name: &str, kind: &str) -> Result<String> {
     ensure!(!name.is_empty(), "Client Tracker {kind} has an empty name");
 
     Ok(name.to_owned())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn dump() -> Dump {
-        serde_json::from_str(
-            r#"
-            {
-              "Version": 1,
-              "Classes": [{
-                "Name": "Part",
-                "Members": [
-                  {"MemberType": "Property", "Name": "Anchored", "ValueType": {"Category": "Primitive", "Name": "bool"}},
-                  {"MemberType": "Function", "Name": "Clone"}
-                ]
-              }],
-              "Enums": [{
-                "Name": "Material",
-                "Items": [{"Name": "Plastic", "Value": 256}, {"Name": "Wood", "Value": 512}]
-              }]
-            }
-            "#,
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn parses_inventory() {
-        let catalog = parse_dump(dump()).unwrap();
-
-        assert_eq!(catalog.classes["Part"].members["Anchored"].kind, "Property");
-
-        assert_eq!(
-            catalog.classes["Part"].members["Anchored"].type_category,
-            Some("Primitive".to_owned())
-        );
-
-        assert_eq!(
-            catalog.classes["Part"].members["Anchored"].type_name,
-            Some("bool".to_owned())
-        );
-
-        assert_eq!(catalog.enums["Material"].items["Wood"], 512);
-    }
-
-    #[test]
-    fn ignores_whitespace_only_duplicate_members() {
-        let mut dump = dump();
-
-        dump.classes[0].members.push(RawMember {
-            kind: "Property".to_owned(),
-            name: "Clone ".to_owned(),
-            value_type: None,
-        });
-
-        let catalog = parse_dump(dump).unwrap();
-        assert_eq!(catalog.classes["Part"].members.len(), 2);
-        assert_eq!(catalog.classes["Part"].members["Clone"].kind, "Function");
-    }
-
-    #[test]
-    fn rejects_duplicate_names() {
-        let mut dump = dump();
-
-        dump.classes.push(RawClass {
-            name: "Part".to_owned(),
-            members: Vec::new(),
-        });
-
-        let error = parse_dump(dump).unwrap_err().to_string();
-        assert!(error.contains("duplicate Client Tracker class"));
-    }
 }

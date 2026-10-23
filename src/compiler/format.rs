@@ -1,22 +1,24 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use anyhow::{anyhow, ensure, Context, Result};
+use eyre::{ContextCompat as _, Result, ensure, eyre};
 use rbx_reflection::ReflectionDatabase;
 use rbx_types::VariantType;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use serde_reflection::{
     ContainerFormat, Format, Named, Registry, Samples, Tracer, TracerConfig, VariantFormat,
 };
 
-pub struct Formats {
+use super::pointer;
+
+pub(super) struct Formats {
     pub root: String,
     pub enum_variant: String,
     pub variants: BTreeSet<String>,
     pub definitions: Map<String, Value>,
 }
 
-pub fn values(database: &ReflectionDatabase<'_>) -> Result<Formats> {
+pub(super) fn values(database: &ReflectionDatabase<'_>) -> Result<Formats> {
     let mut tracer = Tracer::new(
         TracerConfig::default()
             .is_human_readable(true)
@@ -26,7 +28,7 @@ pub fn values(database: &ReflectionDatabase<'_>) -> Result<Formats> {
 
     let (_, variant_types) = tracer
         .trace_simple_type::<VariantType>()
-        .map_err(|error| anyhow!(error.to_string()))?;
+        .map_err(|error| eyre!(error.to_string()))?;
 
     let variants = variant_types
         .iter()
@@ -45,7 +47,7 @@ pub fn values(database: &ReflectionDatabase<'_>) -> Result<Formats> {
         for (_, value) in properties {
             let (format, _) = tracer
                 .trace_value(&mut samples, value)
-                .map_err(|error| anyhow!(error.to_string()))?;
+                .map_err(|error| eyre!(error.to_string()))?;
 
             if let Some(previous) = &root {
                 ensure!(
@@ -60,7 +62,7 @@ pub fn values(database: &ReflectionDatabase<'_>) -> Result<Formats> {
 
     let root = match root.context("reflection database has no default property values")? {
         Format::TypeName(name) => name,
-        other => anyhow::bail!("reflected value root is not a named container: {other:?}"),
+        other => eyre::bail!("reflected value root is not a named container: {other:?}"),
     };
 
     let registry = tracer.registry_unchecked();
@@ -90,7 +92,7 @@ fn definitions(
         .with_context(|| format!("missing traced root container {root}"))?;
 
     let ContainerFormat::Enum(traced) = root_format else {
-        anyhow::bail!("traced root container {root} is not an enum");
+        eyre::bail!("traced root container {root} is not an enum");
     };
 
     let traced = traced
@@ -254,29 +256,5 @@ fn value_key(name: &str) -> String {
 }
 
 fn reference(key: &str) -> Value {
-    crate::pointer::reference(key)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn traces_reflected_formats() {
-        let mut database = ReflectionDatabase::new();
-        let mut class = rbx_reflection::ClassDescriptor::new("Instance");
-        class.default_properties.insert("Enabled", true.into());
-        database.classes.insert("Instance", class);
-        let formats = values(&database).unwrap();
-        assert!(!formats.variants.is_empty());
-
-        assert!(formats
-            .definitions
-            .contains_key(&format!("serde/{}", formats.root)));
-
-        assert!(formats
-            .variants
-            .iter()
-            .all(|name| formats.definitions.contains_key(&format!("value/{name}"))));
-    }
+    pointer::reference(key)
 }

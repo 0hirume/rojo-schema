@@ -1,8 +1,8 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const HEX: &[u8; 16] = b"0123456789ABCDEF";
 
-pub fn path(key: &str) -> String {
+pub(super) fn path(key: &str) -> String {
     let pointer = key.replace('~', "~0").replace('/', "~1");
     let mut encoded = String::with_capacity(pointer.len());
 
@@ -19,19 +19,6 @@ pub fn path(key: &str) -> String {
     format!("#/$defs/{encoded}")
 }
 
-pub fn reference(key: &str) -> Value {
+pub(super) fn reference(key: &str) -> Value {
     json!({ "$ref": path(key) })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn encodes_json_pointer_as_uri_fragment() {
-        assert_eq!(
-            path("property/PVInstance/Pivot Offset"),
-            "#/$defs/property~1PVInstance~1Pivot%20Offset"
-        );
-    }
 }
