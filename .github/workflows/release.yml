@@ -20,7 +20,7 @@ defaults:
 jobs:
   plan:
     name: plan release
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -31,15 +31,14 @@ jobs:
           persist-credentials: false
 
       - name: set up dist
-        uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7
+        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550
         with:
+          minimum_release_age: 0s
           install_args: aqua:axodotdev/cargo-dist
           cache: false
 
       - name: set up nushell
-        uses: hustcer/setup-nu@95cd3bfe252450ef7d35dd9a7ddecf3484341134
-        with:
-          check-latest: true
+        uses: hustcer/setup-nu@eacad52a4634c4f8d17a94916f93be6856861b9c
 
       - name: plan release
         id: plan
@@ -63,15 +62,14 @@ jobs:
           persist-credentials: false
 
       - name: set up dist
-        uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7
+        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550
         with:
+          minimum_release_age: 0s
           install_args: aqua:axodotdev/cargo-dist
           cache: false
 
       - name: set up nushell
-        uses: hustcer/setup-nu@95cd3bfe252450ef7d35dd9a7ddecf3484341134
-        with:
-          check-latest: true
+        uses: hustcer/setup-nu@eacad52a4634c4f8d17a94916f93be6856861b9c
 
       - name: build archive
         id: artifacts
@@ -87,7 +85,7 @@ jobs:
   publish:
     name: publish release
     needs: build
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
@@ -100,15 +98,14 @@ jobs:
           persist-credentials: false
 
       - name: set up dist
-        uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7
+        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550
         with:
+          minimum_release_age: 0s
           install_args: aqua:axodotdev/cargo-dist
           cache: false
 
       - name: set up nushell
-        uses: hustcer/setup-nu@95cd3bfe252450ef7d35dd9a7ddecf3484341134
-        with:
-          check-latest: true
+        uses: hustcer/setup-nu@eacad52a4634c4f8d17a94916f93be6856861b9c
 
       - name: download archives
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
@@ -126,7 +123,7 @@ jobs:
 
   refresh:
     needs: publish
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       actions: write

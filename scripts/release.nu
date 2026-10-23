@@ -21,7 +21,7 @@ def "main plan" []: nothing -> string {
     let matrix = {
         include: ($configuration.targets | each {|target|
             let runner = match $target {
-                x86_64-unknown-linux-gnu => "ubuntu-26.04"
+                x86_64-unknown-linux-gnu => "ubuntu-latest"
 
                 _ => {
                     error make {

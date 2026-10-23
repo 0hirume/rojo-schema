@@ -12,7 +12,7 @@ permissions: {}
 
 jobs:
   build:
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
       contents: read
@@ -24,17 +24,16 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
 
       - name: set up schema compiler
-        uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7
+        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550
         with:
+          minimum_release_age: 0s
           mise_toml: |
             [tools]
             "github:${{ github.repository }}" = "latest"
           cache: false
 
       - name: set up nushell
-        uses: hustcer/setup-nu@913f2aa794632a1834b5a6b983bd21832177544b
-        with:
-          version: ">=0.116.0"
+        uses: hustcer/setup-nu@eacad52a4634c4f8d17a94916f93be6856861b9c
 
       - name: build site
         run: nu scripts/pages.nu
