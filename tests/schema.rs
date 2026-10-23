@@ -104,15 +104,24 @@ fn schema_is_source_derived_and_class_aware() {
         "#/$defs/value~1Bool"
     );
 
-    assert_eq!(character_auto_loads["default"], true);
+    assert_eq!(
+        character_auto_loads["defaultSnippets"][0]["bodyText"],
+        "${1:true}$0"
+    );
+
+    assert!(character_auto_loads.get("default").is_none());
     let technology = &definitions["property/Lighting/Technology"];
-    assert!(technology["default"].is_string());
+
+    let technology_snippet = technology["defaultSnippets"][0]["bodyText"]
+        .as_str()
+        .unwrap();
 
     assert!(
         definitions["enum/Technology"]["enum"]
             .as_array()
             .unwrap()
-            .contains(&technology["default"])
+            .iter()
+            .any(|value| technology_snippet == format!("\"${{1:{}}}\"$0", value.as_str().unwrap()))
     );
 
     assert_deprecation_overrides(&schema, &coverage);
@@ -161,9 +170,14 @@ fn schema_is_source_derived_and_class_aware() {
     );
 
     let unique = &definitions["property/Instance/UniqueId"];
-    assert!(unique["default"].is_object());
+
+    assert_eq!(
+        unique["defaultSnippets"][0]["bodyText"],
+        "{\"UniqueId\": \"${1:00000000000000000000000000000000}\"}$0"
+    );
+
     assert!(unique.get("examples").is_none());
-    assert!(unique.get("defaultSnippets").is_none());
+    assert!(unique.get("default").is_none());
 
     let middleware = definitions["rojo/Middleware"]["anyOf"].as_array().unwrap();
     assert_ne!(middleware.len(), 0, "middleware must not be empty");

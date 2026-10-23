@@ -11,6 +11,57 @@ const OPTIONS: Options = Options::ENABLE_TABLES
     .union(Options::ENABLE_STRIKETHROUGH)
     .union(Options::ENABLE_TASKLISTS);
 
+fn snippet(value: &Value, index: &mut usize) -> String {
+    match value {
+        Value::Object(fields) if !fields.is_empty() => {
+            let fields = fields
+                .iter()
+                .map(|(key, value)| {
+                    let key = escape_snippet(
+                        &serde_json::to_string(key).expect("serializing a JSON key"),
+                    );
+
+                    format!("{key}: {}", snippet(value, index))
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            format!("{{{fields}}}")
+        }
+
+        Value::Array(values) if !values.is_empty() => {
+            let values = values
+                .iter()
+                .map(|value| snippet(value, index))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            format!("[{values}]")
+        }
+
+        _ => {
+            *index += 1;
+            let text = value.to_string();
+
+            if value.is_string() {
+                let text = escape_snippet(&text[1..text.len() - 1]);
+
+                format!("\"${{{index}:{text}}}\"")
+            } else {
+                let text = escape_snippet(&text);
+
+                format!("${{{index}:{text}}}")
+            }
+        }
+    }
+}
+
+fn escape_snippet(text: &str) -> String {
+    text.replace('\\', "\\\\")
+        .replace('$', "\\$")
+        .replace('}', "\\}")
+}
+
 pub(super) fn markdown(text: &str, base: &Url) -> Result<String> {
     let mut html = String::new();
     push_html(&mut html, Parser::new_ext(text, OPTIONS));
@@ -284,6 +335,17 @@ pub(super) fn schema(schema: &mut Value, name: &str) {
         );
 
         object.insert("markdownDescription".to_owned(), Value::String(markdown));
+    }
+
+    if object.contains_key("x-rojo-owner")
+        && let Some(default) = object.remove("default")
+    {
+        let body = format!("{}$0", snippet(&default, &mut 0));
+
+        object.insert(
+            "defaultSnippets".to_owned(),
+            serde_json::json!([{ "label": "Default value", "bodyText": body }]),
+        );
     }
 
     for keyword in ["properties", "patternProperties", "$defs", "definitions"] {
