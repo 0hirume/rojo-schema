@@ -106,7 +106,7 @@ fn schema_is_source_derived_and_class_aware() {
 
     assert_eq!(
         character_auto_loads["defaultSnippets"][0]["bodyText"],
-        "${1:true}$0"
+        format!("${{1:{}}}$0", true)
     );
 
     assert!(character_auto_loads.get("default").is_none());
@@ -173,7 +173,10 @@ fn schema_is_source_derived_and_class_aware() {
 
     assert_eq!(
         unique["defaultSnippets"][0]["bodyText"],
-        "{\"UniqueId\": \"${1:00000000000000000000000000000000}\"}$0"
+        format!(
+            r#"{{"UniqueId": "${{1:{}}}"}}$0"#,
+            "00000000000000000000000000000000"
+        )
     );
 
     assert!(unique.get("examples").is_none());
