@@ -20,69 +20,45 @@ Add `$schema` at the top level of a `.project.json` or `.project.jsonc` file:
 ```json
 {
   "$schema": "https://0hirume.github.io/rojo-schema/latest/model.schema.json",
-  "className": "Part",
-  "properties": {
+  "ClassName": "Part",
+  "Properties": {
     "Anchored": true
   }
 }
 ```
 
-### VS Code
+### Editor settings
 
-In VS Code, you can configure schema associations in your user or workspace
-`settings.json` so you don't need to add `$schema` to each file:
+Configure schema associations once to omit `$schema` from individual files.
 
-```json
-{
-  "json.schemas": [
-    {
-      "fileMatch": ["*.project.json", "*.project.jsonc"],
-      "url": "https://0hirume.github.io/rojo-schema/latest/project.schema.json"
-    },
-    {
-      "fileMatch": ["*.model.json", "*.model.jsonc"],
-      "url": "https://0hirume.github.io/rojo-schema/latest/model.schema.json"
-    }
-  ]
-}
-```
+#### VS Code and Zed
 
-If VS Code marks a schema URL as untrusted, use its quick fix to choose
-**Trust URI** or **Trust Domain**.
+Use this array in your user or project settings:
 
-### Zed
-
-Add schema associations to your Zed settings or `.zed/settings.json` to apply
-them without a `$schema` declaration in each file:
+- In VS Code, set `"json.schemas"` in `settings.json` to this array.
+- In Zed settings or `.zed/settings.json`, place it under the nested
+  `lsp.json-language-server.settings.json.schemas` keys.
 
 ```json
-{
-  "lsp": {
-    "json-language-server": {
-      "settings": {
-        "json": {
-          "schemas": [
-            {
-              "fileMatch": ["*.project.json", "*.project.jsonc"],
-              "url": "https://0hirume.github.io/rojo-schema/latest/project.schema.json"
-            },
-            {
-              "fileMatch": ["*.model.json", "*.model.jsonc"],
-              "url": "https://0hirume.github.io/rojo-schema/latest/model.schema.json"
-            }
-          ]
-        }
-      }
-    }
+[
+  {
+    "fileMatch": ["*.project.json", "*.project.jsonc"],
+    "url": "https://0hirume.github.io/rojo-schema/latest/project.schema.json"
+  },
+  {
+    "fileMatch": ["*.model.json", "*.model.jsonc"],
+    "url": "https://0hirume.github.io/rojo-schema/latest/model.schema.json"
   }
-}
+]
 ```
 
-### Neovim
+If VS Code flags a schema URL as untrusted, choose `Trust URI` or `Trust Domain`
+from its quick fix.
 
-With Neovim 0.11+, `nvim-lspconfig`, and the JSON language server installed, add
-these associations to your `jsonls` configuration. They apply without a
-`$schema` declaration in each file:
+#### Neovim
+
+Neovim requires version 0.11+ and `vscode-json-language-server`.
+Add this to your Lua configuration:
 
 ```lua
 vim.lsp.config("jsonls", {
@@ -103,6 +79,21 @@ vim.lsp.config("jsonls", {
 })
 
 vim.lsp.enable("jsonls")
+```
+
+#### Helix
+
+Helix requires `vscode-json-language-server`. Add this to your Helix
+`languages.toml` or the project's `.helix/languages.toml`:
+
+```toml
+[[language-server.vscode-json-language-server.config.json.schemas]]
+fileMatch = ["*.project.json", "*.project.jsonc"]
+url = "https://0hirume.github.io/rojo-schema/latest/project.schema.json"
+
+[[language-server.vscode-json-language-server.config.json.schemas]]
+fileMatch = ["*.model.json", "*.model.jsonc"]
+url = "https://0hirume.github.io/rojo-schema/latest/model.schema.json"
 ```
 
 Schemas update automatically.
