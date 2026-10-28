@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.2](https://github.com/0hirume/rojo-schema/compare/v0.1.1...v0.1.2) - 2026-10-28
+
+### Fixed
+
+- separate hover documentation sections
+
+### Other
+
+- simplify editor setup and add Helix
+- explain schema setup for VS Code, Zed, and Neovim
+
 ## [0.1.1](https://github.com/0hirume/rojo-schema/compare/v0.1.0...v0.1.1) - 2026-10-23
 
 ### Fixed
