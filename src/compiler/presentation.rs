@@ -297,19 +297,19 @@ pub(super) fn schema(schema: &mut Value, name: &str) {
         markdown.push_str(&badges(object));
 
         if !description.is_empty() {
-            write!(markdown, "\n\n{description}").expect("formatting a string");
+            write!(markdown, "\n\n---\n\n{description}").expect("formatting a string");
         }
 
         if let Some(default) = object.get("default") {
             if default.is_array() || default.is_object() {
                 write!(
                     markdown,
-                    "\n\n**Default**\n\n```json\n{}\n```",
+                    "\n\n---\n\n**Default**\n\n```json\n{}\n```",
                     serde_json::to_string_pretty(default).expect("serializing a JSON value")
                 )
                 .expect("formatting a string");
             } else {
-                markdown.push_str("\n\n**Default:** ");
+                markdown.push_str("\n\n---\n\n**Default:** ");
 
                 cmark(
                     [Event::Code(default.to_string().into())],
